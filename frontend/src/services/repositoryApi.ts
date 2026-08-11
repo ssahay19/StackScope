@@ -1,10 +1,14 @@
 import type { DependencyGraph, FileInspectorResponse } from '../types/parsing';
+import type { RepositoryAnalysis } from '../types/repository';
 import { getJson } from './httpClient';
 
 /**
- * Phase 2 read endpoints. All routes are keyed on the analysis `id`
- * returned by POST /api/analyze.
+ * Read endpoints keyed on the analysis `id` returned by POST /api/analyze.
  */
+
+/** Phase 4 — full analysis payload for hard-refresh / shareable links. */
+export const getAnalysis = (id: string, signal?: AbortSignal): Promise<RepositoryAnalysis> =>
+  getJson<RepositoryAnalysis>(`/repository/${encodeURIComponent(id)}`, { signal });
 
 export const getDependencies = (id: string, signal?: AbortSignal): Promise<DependencyGraph> =>
   getJson<DependencyGraph>(`/repository/${encodeURIComponent(id)}/dependencies`, { signal });

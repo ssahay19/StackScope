@@ -64,8 +64,8 @@ export const LandingPage = () => {
     if (!canSubmit) return;
     const result = await analyze(url.trim());
     if (result) {
-      // Graph is the centerpiece; land there by default.
-      navigate('/graph', { state: { analysis: result } });
+      // Graph is the centerpiece; land on the shareable /graph/:id URL.
+      navigate(`/graph/${result.id}`, { state: { analysis: result } });
     }
   };
 

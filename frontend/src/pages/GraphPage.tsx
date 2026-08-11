@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import type { RepositoryAnalysis } from '../types/repository';
+import { useAnalysisById } from '../hooks/useAnalysisById';
 import { useGraphData } from '../hooks/useGraphData';
 import { useFileInspector } from '../hooks/useFileInspector';
 import { DependencyGraph } from '../components/graph/DependencyGraph';
@@ -9,6 +10,7 @@ import { GraphSidePanel } from '../components/graph/GraphSidePanel';
 import { Button } from '../components/ui/Button';
 import { Spinner } from '../components/ui/Spinner';
 import { Badge } from '../components/ui/Badge';
+import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 
 interface GraphLocationState {
   analysis?: RepositoryAnalysis;
@@ -17,21 +19,50 @@ interface GraphLocationState {
 /**
  * GraphPage — the interactive dependency graph route.
  *
- * The analysis comes via router state from LandingPage or ResultPage. If the
- * user lands here directly (refresh / bookmark), we send them back to `/`
- * because the id-based store is in-memory only in this phase.
+ * Canonical URL: `/graph/:id`. On load we prefer `location.state.analysis`
+ * (handed over from LandingPage / ResultPage) when the ids match; otherwise
+ * we fetch the analysis from GET /api/repository/:id so a hard refresh or a
+ * shared link still works.
  */
 export const GraphPage = () => {
-  const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const state = location.state as GraphLocationState | null;
-  const analysis = state?.analysis;
+  const { status, analysis, error, reload } = useAnalysisById(id, state?.analysis);
 
-  useEffect(() => {
-    if (!analysis) navigate('/', { replace: true });
-  }, [analysis, navigate]);
+  if (status === 'loading' || status === 'idle') {
+    return (
+      <div className="flex h-[calc(100vh-72px)] items-center justify-center gap-3 text-sm text-white/60">
+        <Spinner size={16} /> Loading analysis…
+      </div>
+    );
+  }
 
-  if (!analysis) return null;
+  if (status === 'error' || !analysis) {
+    return (
+      <div className="flex h-[calc(100vh-72px)] items-center justify-center px-6">
+        <div
+          className="glass max-w-md rounded-2xl border border-red-500/30 bg-red-500/[0.05] p-6 shadow-glass"
+          role="alert"
+        >
+          <div className="text-sm font-medium text-red-200">Analysis unavailable</div>
+          <p className="mt-1 text-sm text-red-100/70">
+            {error?.message ?? 'This analysis was not found or has expired.'}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button size="md" variant="ghost" onClick={reload}>
+              Try again
+            </Button>
+            <Button size="md" variant="primary" onClick={() => navigate('/')}>
+              Analyze a repository
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return <GraphPageContent analysis={analysis} />;
 };
 
@@ -77,11 +108,12 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
           </h1>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <CopyLinkButton path={`/graph/${analysis.id}`} />
           <Button
             variant="ghost"
             size="md"
-            onClick={() => navigate('/result', { state: { analysis } })}
+            onClick={() => navigate(`/result/${analysis.id}`, { state: { analysis } })}
           >
             Overview
           </Button>
@@ -98,7 +130,10 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
           </div>
         ) : graphState.status === 'error' && graphState.error ? (
           <div className="flex h-full items-center justify-center">
-            <div className="glass max-w-md rounded-2xl border border-red-500/30 bg-red-500/[0.05] p-6 shadow-glass" role="alert">
+            <div
+              className="glass max-w-md rounded-2xl border border-red-500/30 bg-red-500/[0.05] p-6 shadow-glass"
+              role="alert"
+            >
               <div className="text-sm font-medium text-red-200">Could not load graph</div>
               <p className="mt-1 text-sm text-red-100/70">{graphState.error.message}</p>
               <div className="mt-4">

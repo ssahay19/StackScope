@@ -11,29 +11,25 @@ This is not an AI chatbot. It is a repository navigation aid.
 
 ---
 
-## Current scope (Phase 3)
+## Current scope (Phase 4)
 
-Phase 3 adds an **interactive dependency graph** on top of Phase 2's static
-analysis. The graph is now the centerpiece of the app.
+Phase 4 adds **persistence and shareable analysis links** on top of the
+Phase 3 interactive graph.
 
 - Paste a `https://github.com/<owner>/<repo>` URL.
-- Backend clones (`--depth 1`), scans, then **parses TS/JS files with
-  tree-sitter**, extracts imports/exports/functions/classes/interfaces/enums/
-  type aliases/variables, and **builds a directed dependency graph**.
-- Frontend renders it as an interactive **React Flow** graph with automatic
-  ELK.js layout, category-based node coloring, click-to-highlight
-  incoming/outgoing dependencies, a slide-in file details panel, a search box
-  that centers on matches, and a rich filter panel (language, folder, roots,
-  cycles, tests, config).
-- The Phase 2 "overview" view (stats + language breakdown + folder tree +
-  inspector) is still available at `/result` and is one click away from the
-  graph.
+- Backend clones (`--depth 1`), scans, parses TS/JS with tree-sitter, builds
+  a directed dependency graph, and **persists the full analysis in SQLite**
+  (keyed by UUID, with the same TTL + LRU eviction as the old in-memory store).
+- Frontend lands on a **shareable** `/graph/:id` URL. Hard-refreshing the page,
+  bookmarking it, or sending the link to a teammate all reload the same
+  analysis from the backend. The overview lives at `/result/:id`.
+- Both pages expose a **Copy link** button that copies an absolute shareable URL.
 
 **Still not included (deferred):**
 
 - No AI summaries, embeddings, chat, or natural-language search
-- No database, cache, or job queue (analyses live in an in-memory TTL store)
-- No authentication, no private repositories
+- No job queue / BullMQ, no Redis, no Postgres (SQLite only)
+- No authentication, no private repositories, no per-user history
 
 ---
 
@@ -82,9 +78,10 @@ PARSE_CONCURRENCY=8
 MAX_PARSE_FILE_BYTES=500000
 MAX_PARSE_TIME_MS=30000
 
-# In-memory analysis store (Phase 2)
+# Analysis store (Phase 4 — SQLite-backed)
 ANALYSIS_TTL_MS=1800000
 ANALYSIS_MAX_ENTRIES=50
+ANALYSIS_DB_PATH=data/analyses.db
 ```
 
 Defaults match the values above, so a `.env` file is only required if you want
@@ -170,6 +167,12 @@ Success response (abbreviated):
 }
 ```
 
+### `GET /api/repository/:id`
+
+Returns the full stored `RepositoryAnalysis` (same shape as `POST /api/analyze`).
+Used by the frontend on hard refresh and shared `/graph/:id` / `/result/:id`
+links. Returns `404 NOT_FOUND` if the id is unknown or the analysis has expired.
+
 ### `GET /api/repository/:id/dependencies`
 
 Each node carries the raw parsing output plus the visualization metadata added
@@ -254,9 +257,25 @@ Everything here is enforced server-side.
 
 ---
 
+## Shareable links (Phase 4)
+
+After analyze completes, the app navigates to `/graph/<id>`. The overview lives
+at `/result/<id>`. Both URLs are shareable:
+
+1. Prefer `location.state.analysis` when navigating within the app (no extra fetch).
+2. On hard refresh or a pasted link, fetch `GET /api/repository/:id`.
+3. Use **Copy link** on either page to put the absolute URL on the clipboard.
+
+Analyses survive server restart because they are stored in SQLite
+(`ANALYSIS_DB_PATH`, default `backend/data/analyses.db`). The same 30-minute
+TTL and max-entry LRU eviction from Phase 2 still apply — expired rows are
+deleted on access / insert.
+
+---
+
 ## Architecture graph (Phase 3)
 
-The graph view lives at `/graph` and is the default landing after an analysis
+The graph view lives at `/graph/:id` and is the default landing after an analysis
 completes.
 
 **Layout.** [ELK.js](https://github.com/kieler/elkjs) runs the `layered`
@@ -309,27 +328,27 @@ keyboard-accessible and has visible focus states.
   the tree but have `languageSupported: false` on their dependency node.
 - **Only relative imports are resolved** (`./foo`, `../bar`). Bare specifiers
   (`react`, `lodash`) are recorded as external. Path aliases (`@/foo`, etc.)
-  are not resolved yet — that requires reading `tsconfig.json`, which is a
-  Phase 3 concern.
+  are not resolved yet — that requires reading `tsconfig.json`.
 - **Nested declarations are not extracted as top-level symbols.** A function
   declared inside another function is intentionally not surfaced.
 - **Cloning a large monorepo can hit `REPO_TOO_LARGE`.** Adjust the budgets
   in `.env` if you're running locally.
-- **Analyses live in memory with a 30-minute TTL** and a hard cap of 50
-  concurrent entries. Refreshing `/result` returns the user to the landing
-  page. Persistence is a Phase 3 concern.
+- **Analyses expire after a 30-minute TTL** (configurable) and the store
+  keeps at most 50 concurrent entries (LRU eviction). They survive a server
+  restart and a browser hard-refresh for as long as they have not expired.
+  Shareable links to expired analyses return a clear "Analysis unavailable"
+  screen with a retry / re-analyze path.
 
 ---
 
 ## Future roadmap (not implemented)
 
-- **Phase 4 (not started):** `tsconfig.json`-aware path alias resolution.
-  Postgres-backed analysis storage, BullMQ job queue, shareable
-  `/graph/:id` URLs. LLM-generated module summaries, provider-agnostic
-  (`openai`, `gemini`), cached by `(repoUrl, commitSha, promptVersion)`.
-  Always opt-in.
-- **Phase 5:** GitHub OAuth for private repositories, webhooks to invalidate
-  cached analyses on push. Additional tree-sitter grammars (Python, Go, Rust).
+- **Phase 5:** `tsconfig.json`-aware path alias resolution. LLM-generated
+  module summaries, provider-agnostic (`openai`, `gemini`), cached by
+  `(repoUrl, commitSha, promptVersion)`. Always opt-in. GitHub OAuth for
+  private repositories, webhooks to invalidate analyses on push. Additional
+  tree-sitter grammars (Python, Go, Rust). Optional Postgres / Redis if
+  multi-instance deployment is needed.
 
 ---
 
@@ -348,48 +367,43 @@ keyboard-accessible and has visible focus states.
 │       ├── middleware/{errorHandler,requestId,rateLimit}.ts
 │       ├── services/
 │       │   ├── analysisService.ts          # orchestrator (clone → scan → parse → store)
-│       │   ├── analysisStore.ts            # in-memory keyed cache w/ TTL
+│       │   ├── analysisStore.ts            # SQLite-backed store w/ TTL + LRU
 │       │   ├── gitService.ts               # simple-git wrapper
 │       │   ├── repoScannerService.ts       # tree walker + budgets (unchanged)
 │       │   ├── languageDetection.ts        # ext → language mapping
-│       │   └── parser/                     # Phase 2 parser pipeline
-│       │       ├── parserService.ts        # tree-sitter grammar registry
+│       │   └── parser/                     # Phase 2 parser pipeline (unchanged)
+│       │       ├── parserService.ts
 │       │       ├── symbolExtractorService.ts
-│       │       ├── importResolver.ts       # relative → repo-relative path
+│       │       ├── importResolver.ts
 │       │       ├── dependencyGraphService.ts
-│       │       ├── parsingPipeline.ts      # composes the above
-│       │       └── __tests__/*.test.ts     # vitest suites (55 tests)
+│       │       ├── parsingPipeline.ts
+│       │       ├── nodeClassifier.ts       # Phase 3 category metadata
+│       │       └── __tests__/*.test.ts
 │       ├── utils/{errors,fileSystem,githubUrl,logger,concurrency}.ts
 │       └── types/{repository,parsing}.ts   # DTO contract
+│   └── data/                               # runtime SQLite DB (gitignored)
 └── frontend/
     ├── vitest.config.ts                     # jsdom + @testing-library
     └── src/
-        ├── App.tsx  main.tsx  routes.tsx    # lazy-loaded /graph route
-        ├── test-setup.ts                    # ResizeObserver / matchMedia shims
+        ├── App.tsx  main.tsx  routes.tsx    # /graph/:id, /result/:id
+        ├── test-setup.ts
         ├── pages/{LandingPage,ResultPage,GraphPage}.tsx
         ├── components/
         │   ├── layout/{AppShell,Header}.tsx
-        │   ├── ui/{GlassCard,Button,Spinner,Badge}.tsx
+        │   ├── ui/{GlassCard,Button,Spinner,Badge,CopyLinkButton}.tsx
         │   ├── analyze/{HeroSection,UrlInput}.tsx
         │   ├── repo/{RepoStats,LanguageBreakdown,FolderTree,TreeNodeItem,FileInspector}.tsx
         │   └── graph/                       # Phase 3 visualization
-        │       ├── DependencyGraph.tsx      # React Flow scene
-        │       ├── DependencyNode.tsx       # custom node renderer
-        │       ├── DependencyEdge.tsx       # custom edge with highlight states
-        │       ├── GraphToolbar.tsx         # search + filters
-        │       ├── MiniMapControls.tsx      # mini-map + zoom / fit / reset
-        │       ├── Legend.tsx               # color + edge legend
-        │       ├── GraphSidePanel.tsx       # slide-in file details
+        │       ├── DependencyGraph.tsx
+        │       ├── DependencyNode.tsx
+        │       ├── DependencyEdge.tsx
+        │       ├── GraphToolbar.tsx
+        │       ├── MiniMapControls.tsx
+        │       ├── Legend.tsx
+        │       ├── GraphSidePanel.tsx
         │       └── __tests__/*.test.tsx
-        ├── hooks/{useAnalyzeRepo,useFileInspector,useGraphData}.ts
+        ├── hooks/{useAnalyzeRepo,useFileInspector,useGraphData,useAnalysisById}.ts
         ├── services/{httpClient,analyzeApi,repositoryApi}.ts
-        ├── lib/
-        │   ├── validators.ts
-        │   ├── paths.ts                     # basename / topLevelFolder
-        │   ├── graphColors.ts               # category → color tokens
-        │   ├── graphCycles.ts               # iterative Tarjan, neighbor index
-        │   ├── graphFilters.ts              # pure visibility + search helpers
-        │   ├── graphLayout.ts               # ELK.js wrapper
-        │   └── __tests__/*.test.ts
-        └── types/{repository,parsing}.ts    # mirror of backend DTOs
+        ├── lib/{validators,paths,graphColors,graphCycles,graphFilters,graphLayout}.ts
+        └── types/{repository,parsing}.ts
 ```

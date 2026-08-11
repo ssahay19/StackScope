@@ -1,32 +1,65 @@
-import { useEffect } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useLocation, useNavigate } from 'react-router-dom';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
+import { Spinner } from '../components/ui/Spinner';
+import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { FolderTree } from '../components/repo/FolderTree';
 import { LanguageBreakdown } from '../components/repo/LanguageBreakdown';
 import { RepoStats } from '../components/repo/RepoStats';
 import { FileInspector } from '../components/repo/FileInspector';
 import { useFileInspector } from '../hooks/useFileInspector';
+import { useAnalysisById } from '../hooks/useAnalysisById';
 import type { RepositoryAnalysis } from '../types/repository';
 
 interface ResultLocationState {
   analysis?: RepositoryAnalysis;
 }
 
+/**
+ * ResultPage — the overview view (stats, tree, inspector).
+ *
+ * Canonical URL: `/result/:id`. Same load strategy as GraphPage: prefer
+ * location.state when the ids match, otherwise fetch by id.
+ */
 export const ResultPage = () => {
-  const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const state = location.state as ResultLocationState | null;
-  const analysis = state?.analysis;
+  const { status, analysis, error, reload } = useAnalysisById(id, state?.analysis);
 
-  useEffect(() => {
-    if (!analysis) {
-      navigate('/', { replace: true });
-    }
-  }, [analysis, navigate]);
+  if (status === 'loading' || status === 'idle') {
+    return (
+      <div className="flex h-[50vh] items-center justify-center gap-3 text-sm text-white/60">
+        <Spinner size={16} /> Loading analysis…
+      </div>
+    );
+  }
 
-  if (!analysis) return null;
+  if (status === 'error' || !analysis) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center px-6">
+        <div
+          className="glass max-w-md rounded-2xl border border-red-500/30 bg-red-500/[0.05] p-6 shadow-glass"
+          role="alert"
+        >
+          <div className="text-sm font-medium text-red-200">Analysis unavailable</div>
+          <p className="mt-1 text-sm text-red-100/70">
+            {error?.message ?? 'This analysis was not found or has expired.'}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button size="md" variant="ghost" onClick={reload}>
+              Try again
+            </Button>
+            <Button size="md" variant="primary" onClick={() => navigate('/')}>
+              Analyze a repository
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return <ResultPageContent analysis={analysis} />;
 };
@@ -70,10 +103,11 @@ const ResultPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
               Open on GitHub
             </Button>
           </a>
+          <CopyLinkButton path={`/result/${analysis.id}`} />
           <Button
             variant="ghost"
             size="md"
-            onClick={() => navigate('/graph', { state: { analysis } })}
+            onClick={() => navigate(`/graph/${analysis.id}`, { state: { analysis } })}
           >
             View graph
           </Button>
