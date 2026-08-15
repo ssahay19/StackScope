@@ -11,10 +11,10 @@ This is not an AI chatbot. It is a repository navigation aid.
 
 ---
 
-## Current scope (Phase 5B)
+## Current scope (Phase 5D)
 
-Phase 5B adds **TypeScript/JavaScript path-alias resolution** from
-`tsconfig.json` / `jsconfig.json` on top of Phase 5A Python support.
+Phase 5D adds **Architecture Insights** — deterministic structural metrics
+computed from the existing dependency graph (no AI, no clustering).
 
 - Paste a `https://github.com/<owner>/<repo>` URL.
 - Backend clones (`--depth 1`), scans, parses **TypeScript, JavaScript, and
@@ -25,6 +25,12 @@ Phase 5B adds **TypeScript/JavaScript path-alias resolution** from
   like `react` stay external.
 - Python imports resolve by module path (`a.b.c` → `a/b/c.py` or
   `a/b/c/__init__.py`, plus relative `.` / `..` forms).
+- **`GET /api/repository/:id/insights`** returns ranked most-depended-on files,
+  hubs, entry points, orphans, circular *chains*, dependency depth (on the
+  cycle-collapsed DAG), and folder-based module groups.
+- Frontend **Architecture Insights** panel on `/result/:id` (and an Insights
+  toggle on `/graph/:id`); clicking a listed file selects it in the inspector /
+  graph.
 - Frontend lands on a **shareable** `/graph/:id` URL with a **Copy link**
   affordance. Graph legend includes a Python color for source `.py` nodes.
 
@@ -32,6 +38,7 @@ Phase 5B adds **TypeScript/JavaScript path-alias resolution** from
 
 - No deep `extends` chains, project references, or per-file tsconfig resolution
 - No AI summaries, embeddings, chat, or natural-language search
+- No graph-clustering / community-detection (folder groups only)
 - No job queue / BullMQ, no Redis, no Postgres (SQLite only)
 - No authentication, no private repositories, no per-user history
 - No namespace packages without `__init__.py`, no `sys.path` / `importlib` dynamics
@@ -209,6 +216,30 @@ in Phase 3 (`category`, `extension`, `folder`, `symbolCount`):
 Category is one of `source | test | config | documentation | data | style |
 other`. The frontend uses it (combined with `language`) to pick a node color.
 
+### `GET /api/repository/:id/insights`
+
+Deterministic architecture metrics over the stored graph (Phase 5D). Pure
+function of nodes/edges — no AI.
+
+```json
+{
+  "summary": {
+    "totalFiles": 184,
+    "totalDependencies": 327,
+    "circularChainCount": 3,
+    "rootCount": 7,
+    "orphanCount": 12
+  },
+  "mostDependedOn": [{ "filePath": "src/services/api.ts", "dependents": 31 }],
+  "hubs": [{ "filePath": "src/index.ts", "inDegree": 4, "outDegree": 12, "totalDegree": 16 }],
+  "entryPoints": [{ "filePath": "src/main.ts", "outDegree": 3 }],
+  "orphans": [{ "filePath": "scripts/oneoff.ts", "language": "TypeScript", "languageSupported": true, "category": "source" }],
+  "circularChains": [{ "id": "…", "files": ["a.ts", "b.ts"] }],
+  "dependencyDepth": { "maxDepth": 8, "deepestPath": ["entry.ts", "…", "leaf.ts"] },
+  "moduleGroups": [{ "folder": "src", "fileCount": 40, "internalEdges": 50, "outboundCrossEdges": 12, "inboundCrossEdges": 3 }]
+}
+```
+
 ### `GET /api/repository/:id/file/*`
 
 Everything after `/file/` is the repo-relative file path.
@@ -357,9 +388,8 @@ keyboard-accessible and has visible focus states.
   (`openai`, `gemini`), cached by `(repoUrl, commitSha, promptVersion)`.
   Always opt-in. GitHub OAuth for private repositories, webhooks to
   invalidate analyses on push.
-- **Phase 5D:** Architecture-insights metrics. Additional tree-sitter
-  grammars (Go, Rust). Optional Postgres / Redis if multi-instance
-  deployment is needed.
+- Additional tree-sitter grammars (Go, Rust). Optional Postgres / Redis if
+  multi-instance deployment is needed.
 
 ---
 
@@ -379,6 +409,7 @@ keyboard-accessible and has visible focus states.
 │       ├── services/
 │       │   ├── analysisService.ts          # orchestrator (clone → scan → parse → store)
 │       │   ├── analysisStore.ts            # SQLite-backed store w/ TTL + LRU
+│       │   ├── architectureInsightsService.ts  # Phase 5D deterministic metrics
 │       │   ├── gitService.ts               # simple-git wrapper
 │       │   ├── repoScannerService.ts       # tree walker + budgets (unchanged)
 │       │   ├── languageDetection.ts        # ext → language mapping
@@ -403,7 +434,7 @@ keyboard-accessible and has visible focus states.
         │   ├── layout/{AppShell,Header}.tsx
         │   ├── ui/{GlassCard,Button,Spinner,Badge,CopyLinkButton}.tsx
         │   ├── analyze/{HeroSection,UrlInput}.tsx
-        │   ├── repo/{RepoStats,LanguageBreakdown,FolderTree,TreeNodeItem,FileInspector}.tsx
+        │   ├── repo/{RepoStats,LanguageBreakdown,FolderTree,TreeNodeItem,FileInspector,ArchitectureInsightsPanel}.tsx
         │   └── graph/                       # Phase 3 visualization
         │       ├── DependencyGraph.tsx
         │       ├── DependencyNode.tsx

@@ -101,6 +101,33 @@ describe('GET /api/repository/:id/dependencies (regression)', () => {
   });
 });
 
+describe('GET /api/repository/:id/insights', () => {
+  it('returns architecture insights derived from the stored graph', async () => {
+    const record = seedAnalysis();
+    const res = await request(app).get(`/api/repository/${record.id}/insights`);
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toMatchObject({
+      totalFiles: 1,
+      totalDependencies: 0,
+      circularChainCount: 0,
+      rootCount: 0,
+      orphanCount: 1,
+    });
+    expect(res.body.orphans[0].filePath).toBe('index.ts');
+    expect(Array.isArray(res.body.mostDependedOn)).toBe(true);
+    expect(Array.isArray(res.body.circularChains)).toBe(true);
+    expect(res.body.dependencyDepth).toEqual({ maxDepth: 0, deepestPath: [] });
+  });
+
+  it('returns 404 when the analysis id is unknown', async () => {
+    const res = await request(app).get(
+      '/api/repository/00000000-0000-0000-0000-000000000000/insights',
+    );
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+});
+
 describe('GET /api/repository/:id/file/* (regression)', () => {
   it('returns a single file node and includes Phase 3 metadata', async () => {
     const record = seedAnalysis();

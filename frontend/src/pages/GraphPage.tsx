@@ -5,12 +5,15 @@ import type { RepositoryAnalysis } from '../types/repository';
 import { useAnalysisById } from '../hooks/useAnalysisById';
 import { useGraphData } from '../hooks/useGraphData';
 import { useFileInspector } from '../hooks/useFileInspector';
+import { useArchitectureInsights } from '../hooks/useArchitectureInsights';
 import { DependencyGraph } from '../components/graph/DependencyGraph';
 import { GraphSidePanel } from '../components/graph/GraphSidePanel';
+import { ArchitectureInsightsPanel } from '../components/repo/ArchitectureInsightsPanel';
 import { Button } from '../components/ui/Button';
 import { Spinner } from '../components/ui/Spinner';
 import { Badge } from '../components/ui/Badge';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
+import { GlassCard } from '../components/ui/GlassCard';
 
 interface GraphLocationState {
   analysis?: RepositoryAnalysis;
@@ -70,7 +73,9 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
   const navigate = useNavigate();
   const graphState = useGraphData(analysis.id);
   const inspector = useFileInspector(analysis.id);
+  const insightsState = useArchitectureInsights(analysis.id);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(false);
 
   useEffect(() => {
     if (inspector.selectedPath) setPanelOpen(true);
@@ -109,6 +114,14 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => setInsightsOpen((v) => !v)}
+            aria-pressed={insightsOpen}
+          >
+            {insightsOpen ? 'Hide insights' : 'Insights'}
+          </Button>
           <CopyLinkButton path={`/graph/${analysis.id}`} />
           <Button
             variant="ghost"
@@ -160,6 +173,31 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
               data={inspector.data}
               error={inspector.error}
             />
+            {insightsOpen ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 max-h-[55%] overflow-y-auto p-4 sm:left-auto sm:right-4 sm:w-[min(100%,28rem)]">
+                <div className="pointer-events-auto shadow-2xl">
+                  <ArchitectureInsightsPanel
+                    status={insightsState.status}
+                    insights={insightsState.insights}
+                    error={insightsState.error}
+                    onReload={insightsState.reload}
+                    onSelectFile={(p) => handleSelect(p)}
+                  />
+                </div>
+              </div>
+            ) : insightsState.status === 'success' && insightsState.insights ? (
+              <div className="pointer-events-none absolute bottom-4 left-4 z-10">
+                <GlassCard padded={false} className="pointer-events-auto px-3 py-2">
+                  <p className="text-xs text-white/60">
+                    {insightsState.insights.summary.totalFiles} files ·{' '}
+                    {insightsState.insights.summary.totalDependencies} deps ·{' '}
+                    {insightsState.insights.summary.circularChainCount} chains ·{' '}
+                    {insightsState.insights.summary.rootCount} roots ·{' '}
+                    {insightsState.insights.summary.orphanCount} orphans
+                  </p>
+                </GlassCard>
+              </div>
+            ) : null}
           </>
         ) : null}
       </div>

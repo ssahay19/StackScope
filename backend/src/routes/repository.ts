@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { analysisStore } from '../services/analysisService.js';
+import { computeArchitectureInsights } from '../services/architectureInsightsService.js';
 import { NotFoundError } from '../utils/errors.js';
 import type { DependencyNode } from '../types/parsing.js';
 
@@ -8,12 +9,11 @@ import type { DependencyNode } from '../types/parsing.js';
  *
  *   GET /api/repository/:id                    → the full stored analysis
  *   GET /api/repository/:id/dependencies       → the full graph
+ *   GET /api/repository/:id/insights           → architecture insights (Phase 5D)
  *   GET /api/repository/:id/file/<filePath>    → a single file's node
  *
- * All three read from the analysis store; each returns 404 if the analysis
- * has expired or was evicted. The `/:id` root endpoint is Phase 4's addition,
- * used by the frontend to reload an analysis on a hard refresh or a shared
- * link.
+ * All four read from the analysis store; each returns 404 if the analysis
+ * has expired or was evicted.
  */
 
 const router = Router();
@@ -33,6 +33,16 @@ router.get('/:id/dependencies', (req: Request, res: Response, next: NextFunction
     const { id } = req.params as { id: string };
     const record = analysisStore.get(id);
     res.json({ nodes: record.graph.nodes, edges: record.graph.edges });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/insights', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as { id: string };
+    const record = analysisStore.get(id);
+    res.json(computeArchitectureInsights(record.graph));
   } catch (err) {
     next(err);
   }

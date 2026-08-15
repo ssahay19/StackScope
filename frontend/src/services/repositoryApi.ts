@@ -1,4 +1,5 @@
 import type { DependencyGraph, FileInspectorResponse } from '../types/parsing';
+import type { ArchitectureInsights } from '../types/insights';
 import type { RepositoryAnalysis } from '../types/repository';
 import { getJson } from './httpClient';
 
@@ -12,6 +13,10 @@ export const getAnalysis = (id: string, signal?: AbortSignal): Promise<Repositor
 
 export const getDependencies = (id: string, signal?: AbortSignal): Promise<DependencyGraph> =>
   getJson<DependencyGraph>(`/repository/${encodeURIComponent(id)}/dependencies`, { signal });
+
+/** Phase 5D — deterministic architecture metrics over the stored graph. */
+export const getInsights = (id: string, signal?: AbortSignal): Promise<ArchitectureInsights> =>
+  getJson<ArchitectureInsights>(`/repository/${encodeURIComponent(id)}/insights`, { signal });
 
 export const getFileInspector = (
   id: string,

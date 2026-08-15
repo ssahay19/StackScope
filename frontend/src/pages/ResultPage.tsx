@@ -7,9 +7,11 @@ import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { FolderTree } from '../components/repo/FolderTree';
 import { LanguageBreakdown } from '../components/repo/LanguageBreakdown';
 import { RepoStats } from '../components/repo/RepoStats';
+import { ArchitectureInsightsPanel } from '../components/repo/ArchitectureInsightsPanel';
 import { FileInspector } from '../components/repo/FileInspector';
 import { useFileInspector } from '../hooks/useFileInspector';
 import { useAnalysisById } from '../hooks/useAnalysisById';
+import { useArchitectureInsights } from '../hooks/useArchitectureInsights';
 import type { RepositoryAnalysis } from '../types/repository';
 
 interface ResultLocationState {
@@ -67,6 +69,7 @@ export const ResultPage = () => {
 const ResultPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
   const navigate = useNavigate();
   const inspector = useFileInspector(analysis.id);
+  const insightsState = useArchitectureInsights(analysis.id);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-10">
@@ -124,6 +127,21 @@ const ResultPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
         className="mt-8"
       >
         <RepoStats analysis={analysis} />
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.08, ease: 'easeOut' }}
+        className="mt-6"
+      >
+        <ArchitectureInsightsPanel
+          status={insightsState.status}
+          insights={insightsState.insights}
+          error={insightsState.error}
+          onReload={insightsState.reload}
+          onSelectFile={inspector.select}
+        />
       </motion.div>
 
       <motion.div
