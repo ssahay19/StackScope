@@ -9,6 +9,11 @@ describe('nodeClassifier — classifyFile', () => {
     expect(classifyFile('lib/index.mjs', 'mjs')).toBe('source');
   });
 
+  it('recognizes Python files as source', () => {
+    expect(classifyFile('pkg/mod.py', 'py')).toBe('source');
+    expect(classifyFile('pkg/__init__.py', 'py')).toBe('source');
+  });
+
   it('recognizes test files by .test./.spec. extension', () => {
     expect(classifyFile('src/foo.test.ts', 'ts')).toBe('test');
     expect(classifyFile('src/foo.spec.tsx', 'tsx')).toBe('test');

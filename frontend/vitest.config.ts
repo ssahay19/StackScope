@@ -11,9 +11,7 @@ export default defineConfig({
     css: false,
     testTimeout: 15_000,
     hookTimeout: 30_000,
-    // Vitest 4: single worker, no isolation — avoids cold-worker timeouts.
     maxWorkers: 1,
-    isolate: false,
     fileParallelism: false,
   },
 });

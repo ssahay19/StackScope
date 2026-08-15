@@ -12,12 +12,18 @@ import type {
 import type { TreeNode } from '../../types/repository.js';
 import { extractSymbolsAndImports } from './symbolExtractorService.js';
 import {
+  extractPythonSymbolsAndImports,
+  joinPythonModule,
+} from './pythonSymbolExtractor.js';
+import {
   isSupportedLanguage,
   languageFromExtension,
   displayNameOf,
   parseSource,
+  type ParsedLanguage,
 } from './parserService.js';
 import { createImportResolver } from './importResolver.js';
+import { createPythonImportResolver } from './pythonImportResolver.js';
 import { buildDependencyGraph, summarizeGraph } from './dependencyGraphService.js';
 import { classifyFile, folderOf } from './nodeClassifier.js';
 
@@ -98,7 +104,10 @@ export const runParsingPipeline = async ({
 
   const files = flattenFiles(tree);
   const nodePaths = files.map((f) => f.path);
-  const resolver = createImportResolver(nodePaths);
+  // JS/TS and Python use separate resolvers — Python is module-path based
+  // (Phase 5A) and must not share the relative-file JS resolver.
+  const jsResolver = createImportResolver(nodePaths);
+  const pyResolver = createPythonImportResolver(nodePaths);
 
   log.info({ fileCount: files.length }, 'parsing pipeline started');
 
@@ -140,12 +149,44 @@ export const runParsingPipeline = async ({
       }
 
       try {
-        const parsed = parseSource(language!, source);
-        const extracted = extractSymbolsAndImports(file.path, parsed.rootNode);
-        const importsWithResolution: ImportRef[] = extracted.imports.map((imp) => ({
-          ...imp,
-          resolvedPath: resolver.resolve(file.path, imp.source),
-        }));
+        const lang = language as ParsedLanguage;
+        const parsed = parseSource(lang, source);
+        const extracted =
+          lang === 'python'
+            ? extractPythonSymbolsAndImports(file.path, parsed.rootNode)
+            : extractSymbolsAndImports(file.path, parsed.rootNode);
+
+        const resolveOne = (specifier: string): string | null =>
+          lang === 'python'
+            ? pyResolver.resolve(file.path, specifier)
+            : jsResolver.resolve(file.path, specifier);
+
+        // Python extraction emits submodule-candidate ImportRefs alongside the
+        // parent `from module import name` ref. Keep candidates that resolve to
+        // a real file; drop ones that don't (they're attributes, not modules).
+        // Unresolved top-level / external modules (stdlib, pip) are kept.
+        const importsWithResolution: ImportRef[] = [];
+        const seenKeys = new Set<string>();
+
+        for (const imp of extracted.imports) {
+          const resolvedPath = resolveOne(imp.source);
+          const key = `${imp.source}::${resolvedPath ?? ''}`;
+          if (seenKeys.has(key)) continue;
+
+          if (lang === 'python' && resolvedPath === null) {
+            const isSubmoduleCandidate = extracted.imports.some((other) => {
+              if (other === imp) return false;
+              return other.importedNames.some(
+                (n) => n !== '*' && joinPythonModule(other.source, n) === imp.source,
+              );
+            });
+            if (isSubmoduleCandidate) continue;
+          }
+
+          seenKeys.add(key);
+          importsWithResolution.push({ ...imp, resolvedPath });
+        }
+
         return {
           ...baseNode,
           imports: importsWithResolution,

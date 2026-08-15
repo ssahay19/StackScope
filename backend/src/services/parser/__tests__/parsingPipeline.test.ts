@@ -164,4 +164,66 @@ describe('parsingPipeline — integration', () => {
     expect(min.skipped).toBe(true);
     expect(min.skipReason).toBe('minified');
   });
+
+  it('parses Python packages and resolves intra-repo imports (Phase 5A)', async () => {
+    const subdir = await mkdtemp(join(tmp, 'py-'));
+    const files: FixtureFile[] = [
+      {
+        path: 'pkg/__init__.py',
+        content: `from .util import helper\nfrom .sub import nest\n`,
+      },
+      {
+        path: 'pkg/util.py',
+        content: `def helper():\n    return 42\n\nclass Util:\n    pass\n`,
+      },
+      {
+        path: 'pkg/sub/__init__.py',
+        content: `from .nest import nest\n`,
+      },
+      {
+        path: 'pkg/sub/nest.py',
+        content: `def nest():\n    return 'nested'\n`,
+      },
+      {
+        path: 'main.py',
+        content: `import pkg.util\nfrom pkg.sub import nest\nimport os\n`,
+      },
+      { path: 'README.md', content: '# py fixture' },
+    ];
+    await writeFixture(subdir, files);
+    const tree = buildTree('pypkg', files);
+
+    const { graph, summary } = await runParsingPipeline({ clonedRoot: subdir, tree });
+
+    expect(graph.nodes).toHaveLength(6);
+    expect(summary.filesSkipped).toBe(1); // README
+    expect(summary.filesParsed).toBe(5);
+    expect(summary.filesFailed).toBe(0);
+
+    // Absolute: main → pkg/util.py
+    expect(graph.edges).toContainEqual({ from: 'main.py', to: 'pkg/util.py' });
+    // Absolute package submodule: main → pkg/sub/nest.py (or sub/__init__ then nest)
+    expect(
+      graph.edges.some(
+        (e) =>
+          e.from === 'main.py' &&
+          (e.to === 'pkg/sub/nest.py' || e.to === 'pkg/sub/__init__.py'),
+      ),
+    ).toBe(true);
+
+    // Relative: pkg/__init__.py → pkg/util.py
+    expect(graph.edges).toContainEqual({ from: 'pkg/__init__.py', to: 'pkg/util.py' });
+
+    // os is external
+    const main = graph.nodes.find((n) => n.filePath === 'main.py')!;
+    expect(main.language).toBe('Python');
+    expect(main.languageSupported).toBe(true);
+    const osImp = main.imports.find((i) => i.source === 'os');
+    expect(osImp?.resolvedPath).toBeNull();
+
+    // Symbols on util.py
+    const util = graph.nodes.find((n) => n.filePath === 'pkg/util.py')!;
+    expect(util.symbols.map((s) => s.name).sort()).toEqual(['Util', 'helper']);
+    expect(util.category).toBe('source');
+  });
 });

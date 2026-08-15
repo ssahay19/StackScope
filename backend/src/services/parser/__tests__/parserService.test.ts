@@ -18,8 +18,8 @@ describe('parserService', () => {
       expect(languageFromExtension('cts')).toBe('typescript');
     });
 
-    it('returns null for unsupported extensions', () => {
-      expect(languageFromExtension('py')).toBeNull();
+    it('maps known languages and returns null for unsupported extensions', () => {
+      expect(languageFromExtension('py')).toBe('python');
       expect(languageFromExtension('md')).toBeNull();
       expect(languageFromExtension(undefined)).toBeNull();
       expect(languageFromExtension('')).toBeNull();
@@ -34,7 +34,8 @@ describe('parserService', () => {
   describe('isSupportedLanguage', () => {
     it('reports supported extensions', () => {
       expect(isSupportedLanguage('ts')).toBe(true);
-      expect(isSupportedLanguage('py')).toBe(false);
+      expect(isSupportedLanguage('py')).toBe(true);
+      expect(isSupportedLanguage('md')).toBe(false);
       expect(isSupportedLanguage(undefined)).toBe(false);
     });
   });
@@ -56,6 +57,13 @@ describe('parserService', () => {
       const result = parseSource('tsx', 'const el = <div id="x">hi</div>;');
       expect(result.rootNode.type).toBe('program');
       expect(result.hasErrors).toBe(false);
+    });
+
+    it('parses valid Python to a module root without errors', () => {
+      const result = parseSource('python', 'def greet(name):\n    return name\n');
+      expect(result.rootNode.type).toBe('module');
+      expect(result.hasErrors).toBe(false);
+      expect(languageFromExtension('py')).toBe('python');
     });
 
     it('does not throw on empty source', () => {

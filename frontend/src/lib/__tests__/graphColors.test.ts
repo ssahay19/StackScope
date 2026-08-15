@@ -10,6 +10,10 @@ describe('graphColors — colorForNode', () => {
     expect(colorForNode({ category: 'source', language: 'JavaScript' }).key).toBe('javascript');
   });
 
+  it('picks Python blue for source Python files', () => {
+    expect(colorForNode({ category: 'source', language: 'Python' }).key).toBe('python');
+  });
+
   it('overrides language when the category is test', () => {
     expect(colorForNode({ category: 'test', language: 'TypeScript' }).key).toBe('test');
   });
@@ -36,6 +40,7 @@ describe('graphColors — legend order', () => {
     const keys = LEGEND_ORDER.map((e) => e.key);
     expect(keys).toContain('typescript');
     expect(keys).toContain('javascript');
+    expect(keys).toContain('python');
     expect(keys).toContain('config');
     expect(keys).toContain('test');
     expect(keys).toContain('data');

@@ -11,25 +11,31 @@ This is not an AI chatbot. It is a repository navigation aid.
 
 ---
 
-## Current scope (Phase 4)
+## Current scope (Phase 5A)
 
-Phase 4 adds **persistence and shareable analysis links** on top of the
-Phase 3 interactive graph.
+Phase 5A adds **Python parsing and dependency resolution** on top of the
+Phase 4 persistent, shareable analyses.
 
 - Paste a `https://github.com/<owner>/<repo>` URL.
-- Backend clones (`--depth 1`), scans, parses TS/JS with tree-sitter, builds
-  a directed dependency graph, and **persists the full analysis in SQLite**
-  (keyed by UUID, with the same TTL + LRU eviction as the old in-memory store).
+- Backend clones (`--depth 1`), scans, parses **TypeScript, JavaScript, and
+  Python** with tree-sitter, builds a directed dependency graph, and
+  **persists the full analysis in SQLite** (keyed by UUID, with TTL + LRU).
+- Python imports resolve by module path (`a.b.c` → `a/b/c.py` or
+  `a/b/c/__init__.py`, plus relative `.` / `..` forms). Stdlib and pip
+  packages stay external (`resolvedPath: null`).
 - Frontend lands on a **shareable** `/graph/:id` URL. Hard-refreshing the page,
   bookmarking it, or sending the link to a teammate all reload the same
   analysis from the backend. The overview lives at `/result/:id`.
 - Both pages expose a **Copy link** button that copies an absolute shareable URL.
+- Graph legend includes a Python color for source `.py` nodes.
 
 **Still not included (deferred):**
 
+- No `tsconfig` path-alias resolution (Phase 5B)
 - No AI summaries, embeddings, chat, or natural-language search
 - No job queue / BullMQ, no Redis, no Postgres (SQLite only)
 - No authentication, no private repositories, no per-user history
+- No namespace packages without `__init__.py`, no `sys.path` / `importlib` dynamics
 
 ---
 
@@ -290,6 +296,7 @@ files additionally split by language:
 | ------------------- | ------ |
 | TypeScript source   | Blue   |
 | JavaScript source   | Yellow |
+| Python source       | Blue-teal (`#3776ab`) |
 | Data (JSON / YAML)  | Green  |
 | Documentation (MD)  | Gray   |
 | Configuration       | Purple |
@@ -323,12 +330,15 @@ keyboard-accessible and has visible focus states.
 
 ## Known limitations
 
-- **Only TypeScript and JavaScript are parsed** (including `.tsx`, `.jsx`,
-  `.mjs`, `.cjs`, `.mts`, `.cts`). Files in other languages are recorded in
+- **TypeScript, JavaScript, and Python are parsed** (including `.tsx`, `.jsx`,
+  `.mjs`, `.cjs`, `.mts`, `.cts`, `.py`). Files in other languages are recorded in
   the tree but have `languageSupported: false` on their dependency node.
-- **Only relative imports are resolved** (`./foo`, `../bar`). Bare specifiers
-  (`react`, `lodash`) are recorded as external. Path aliases (`@/foo`, etc.)
-  are not resolved yet — that requires reading `tsconfig.json`.
+- **Only relative imports are resolved for JS/TS** (`./foo`, `../bar`). Bare
+  specifiers (`react`, `lodash`) are recorded as external. Path aliases (`@/foo`)
+  are not resolved yet — that requires reading `tsconfig.json` (Phase 5B).
+- **Python resolves by module path** against the scanned file set only
+  (`a.b` → `a/b.py` or `a/b/__init__.py`; relative `.` / `..`). Namespace
+  packages without `__init__.py` and dynamic `importlib` are not supported.
 - **Nested declarations are not extracted as top-level symbols.** A function
   declared inside another function is intentionally not surfaced.
 - **Cloning a large monorepo can hit `REPO_TOO_LARGE`.** Adjust the budgets
@@ -343,12 +353,14 @@ keyboard-accessible and has visible focus states.
 
 ## Future roadmap (not implemented)
 
-- **Phase 5:** `tsconfig.json`-aware path alias resolution. LLM-generated
-  module summaries, provider-agnostic (`openai`, `gemini`), cached by
-  `(repoUrl, commitSha, promptVersion)`. Always opt-in. GitHub OAuth for
-  private repositories, webhooks to invalidate analyses on push. Additional
-  tree-sitter grammars (Python, Go, Rust). Optional Postgres / Redis if
-  multi-instance deployment is needed.
+- **Phase 5B:** `tsconfig.json`-aware path alias resolution.
+- **Phase 5C:** LLM-generated module summaries, provider-agnostic
+  (`openai`, `gemini`), cached by `(repoUrl, commitSha, promptVersion)`.
+  Always opt-in. GitHub OAuth for private repositories, webhooks to
+  invalidate analyses on push.
+- **Phase 5D:** Architecture-insights metrics. Additional tree-sitter
+  grammars (Go, Rust). Optional Postgres / Redis if multi-instance
+  deployment is needed.
 
 ---
 
@@ -371,7 +383,7 @@ keyboard-accessible and has visible focus states.
 │       │   ├── gitService.ts               # simple-git wrapper
 │       │   ├── repoScannerService.ts       # tree walker + budgets (unchanged)
 │       │   ├── languageDetection.ts        # ext → language mapping
-│       │   └── parser/                     # Phase 2 parser pipeline (unchanged)
+│       │   └── parser/                     # Phase 2+5A parser pipeline (TS/JS/Python)
 │       │       ├── parserService.ts
 │       │       ├── symbolExtractorService.ts
 │       │       ├── importResolver.ts

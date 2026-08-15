@@ -41,6 +41,14 @@ const TOKENS = {
     text: '#fef3c7',
     chip: 'rgba(234, 179, 8, 0.28)',
   },
+  python: {
+    key: 'python',
+    label: 'Python',
+    ring: '#3776ab',
+    fill: 'rgba(55, 118, 171, 0.16)',
+    text: '#dbeafe',
+    chip: 'rgba(55, 118, 171, 0.30)',
+  },
   data: {
     key: 'data',
     label: 'JSON / Data',
@@ -115,6 +123,7 @@ export const colorForNode = (node: Pick<DependencyNode, 'category' | 'language'>
     const lang = node.language.toLowerCase();
     if (lang === 'typescript' || lang.startsWith('typescript')) return TOKENS.typescript;
     if (lang === 'javascript' || lang.startsWith('javascript')) return TOKENS.javascript;
+    if (lang === 'python' || lang.startsWith('python')) return TOKENS.python;
   }
   return TOKENS.other;
 };
@@ -123,6 +132,7 @@ export const colorForNode = (node: Pick<DependencyNode, 'category' | 'language'>
 export const LEGEND_ORDER: NodeColorTokens[] = [
   TOKENS.typescript,
   TOKENS.javascript,
+  TOKENS.python,
   TOKENS.data,
   TOKENS.documentation,
   TOKENS.config,

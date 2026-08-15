@@ -1,6 +1,7 @@
 import Parser from 'tree-sitter';
 import TS from 'tree-sitter-typescript';
 import JS from 'tree-sitter-javascript';
+import Python from 'tree-sitter-python';
 
 /**
  * parserService
@@ -16,7 +17,7 @@ import JS from 'tree-sitter-javascript';
  * extension mapping in `LANGUAGE_BY_EXTENSION`.
  */
 
-export type ParsedLanguage = 'typescript' | 'tsx' | 'javascript';
+export type ParsedLanguage = 'typescript' | 'tsx' | 'javascript' | 'python';
 
 interface LanguageEntry {
   id: ParsedLanguage;
@@ -28,6 +29,7 @@ const LANGUAGE_REGISTRY: Record<ParsedLanguage, LanguageEntry> = {
   typescript: { id: 'typescript', displayName: 'TypeScript', grammar: TS.typescript },
   tsx: { id: 'tsx', displayName: 'TypeScript (TSX)', grammar: TS.tsx },
   javascript: { id: 'javascript', displayName: 'JavaScript', grammar: JS },
+  python: { id: 'python', displayName: 'Python', grammar: Python },
 };
 
 const LANGUAGE_BY_EXTENSION: Record<string, ParsedLanguage> = {
@@ -39,6 +41,7 @@ const LANGUAGE_BY_EXTENSION: Record<string, ParsedLanguage> = {
   mjs: 'javascript',
   cjs: 'javascript',
   jsx: 'javascript',
+  py: 'python',
 };
 
 export const languageFromExtension = (ext: string | undefined): ParsedLanguage | null => {
