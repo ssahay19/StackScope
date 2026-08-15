@@ -24,6 +24,7 @@ import {
 } from './parserService.js';
 import { createImportResolver } from './importResolver.js';
 import { createPythonImportResolver } from './pythonImportResolver.js';
+import { loadTsconfigAliases } from './tsconfigPaths.js';
 import { buildDependencyGraph, summarizeGraph } from './dependencyGraphService.js';
 import { classifyFile, folderOf } from './nodeClassifier.js';
 
@@ -104,12 +105,21 @@ export const runParsingPipeline = async ({
 
   const files = flattenFiles(tree);
   const nodePaths = files.map((f) => f.path);
+  // Phase 5B: load tsconfig/jsconfig aliases once; relative-only if none found.
+  const aliases = await loadTsconfigAliases(clonedRoot, nodePaths);
   // JS/TS and Python use separate resolvers — Python is module-path based
   // (Phase 5A) and must not share the relative-file JS resolver.
-  const jsResolver = createImportResolver(nodePaths);
+  const jsResolver = createImportResolver(nodePaths, { aliases });
   const pyResolver = createPythonImportResolver(nodePaths);
 
-  log.info({ fileCount: files.length }, 'parsing pipeline started');
+  log.info(
+    {
+      fileCount: files.length,
+      aliasConfig: aliases?.configPath ?? null,
+      aliasPatterns: aliases ? Object.keys(aliases.paths).length : 0,
+    },
+    'parsing pipeline started',
+  );
 
   const nodes = await mapWithConcurrency(
     files,

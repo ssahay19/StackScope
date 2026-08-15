@@ -1,17 +1,22 @@
 import { posix } from 'node:path';
+import {
+  expandSpecifierWithAliases,
+  type PathAliasConfig,
+} from './tsconfigPaths.js';
 
 /**
  * importResolver
  *
  * Deterministic, filesystem-free resolution of `import` specifiers against
- * the set of files discovered by the scanner. We resolve *only* relative
- * specifiers (`./foo`, `../bar`). Bare specifiers (`react`), path aliases
- * (`@/foo`), and absolute paths are treated as external and left unresolved
- * — that's honest and matches what a static analyzer without a tsconfig
- * mapping can be sure of.
+ * the set of files discovered by the scanner.
  *
- * The resolver is passed the full list of repo-relative POSIX paths and
- * returns a resolver function bound to that set.
+ * Resolution order (Phase 5B):
+ *   1. Relative specifiers (`./foo`, `../bar`) — unchanged from Phase 2.
+ *   2. Path aliases from tsconfig/jsconfig `compilerOptions.paths`
+ *      (e.g. `@/components/Button` → `src/components/Button`). Expanded
+ *      candidates reuse the same extension / index-file inference.
+ *   3. Otherwise external (`null`) — real bare packages like `react` stay
+ *      unresolved.
  */
 
 const CANDIDATE_EXTENSIONS = ['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs'] as const;
@@ -47,38 +52,76 @@ const candidatesFor = (basePath: string, hasExplicitExtension: boolean): string[
 
 const EXPLICIT_EXT_PATTERN = /\.[a-zA-Z0-9]{1,6}$/;
 
+/**
+ * Resolve a repo-relative module path (already joined / alias-expanded) to a
+ * scanned file, applying extension inference and index-file fallbacks.
+ */
+const resolveModulePath = (
+  modulePath: string,
+  opts: { targetsDirectory: boolean; hasExplicitExt: boolean },
+  fileSet: Set<string>,
+): string | null => {
+  const joined = posix.normalize(modulePath).replace(/^\.\//, '');
+  if (!joined || joined === '.' || joined.startsWith('../')) return null;
+
+  let candidates: string[];
+  if (opts.targetsDirectory) {
+    const trimmed = joined.replace(/\/+$/, '');
+    candidates = INDEX_FILES.map((idx) => posix.join(trimmed, idx));
+  } else if (opts.hasExplicitExt) {
+    candidates = [joined, ...swapJsForTs(joined)];
+  } else {
+    candidates = candidatesFor(joined, false);
+  }
+
+  return firstExisting(candidates, fileSet);
+};
+
 export interface ImportResolver {
   resolve(fromFile: string, specifier: string): string | null;
 }
 
-export const createImportResolver = (allFilePaths: readonly string[]): ImportResolver => {
+export interface CreateImportResolverOptions {
+  /** Optional Phase 5B path-alias map loaded from tsconfig/jsconfig. */
+  aliases?: PathAliasConfig | null;
+}
+
+export const createImportResolver = (
+  allFilePaths: readonly string[],
+  options: CreateImportResolverOptions = {},
+): ImportResolver => {
   const fileSet = new Set(allFilePaths);
+  const aliases = options.aliases ?? null;
 
   return {
     resolve(fromFile: string, specifier: string): string | null {
-      if (!isRelative(specifier)) return null;
+      if (!specifier) return null;
 
-      const fromDir = posix.dirname(fromFile);
-      // posix.join handles `./`, `../`, and strips redundant segments.
-      const joined = posix.normalize(posix.join(fromDir, specifier));
-
-      // A specifier ending in `/` explicitly targets a directory index.
-      const targetsDirectory = specifier.endsWith('/');
-      const hasExplicitExt = !targetsDirectory && EXPLICIT_EXT_PATTERN.test(specifier);
-
-      let candidates: string[];
-      if (targetsDirectory) {
-        // Strip trailing slash for join, then resolve index files.
-        const trimmed = joined.replace(/\/+$/, '');
-        candidates = INDEX_FILES.map((idx) => posix.join(trimmed, idx));
-      } else if (hasExplicitExt) {
-        // Handle `./foo.js` — most projects mean `./foo.ts` under TS. Try both.
-        candidates = [joined, ...swapJsForTs(joined)];
-      } else {
-        candidates = candidatesFor(joined, false);
+      // 1. Relative imports — original Phase 2 behavior.
+      if (isRelative(specifier)) {
+        const fromDir = posix.dirname(fromFile);
+        const joined = posix.normalize(posix.join(fromDir, specifier));
+        const targetsDirectory = specifier.endsWith('/');
+        const hasExplicitExt = !targetsDirectory && EXPLICIT_EXT_PATTERN.test(specifier);
+        return resolveModulePath(joined, { targetsDirectory, hasExplicitExt }, fileSet);
       }
 
-      return firstExisting(candidates, fileSet);
+      // 2. Path aliases from tsconfig/jsconfig (Phase 5B).
+      const expanded = expandSpecifierWithAliases(specifier, aliases);
+      for (const candidate of expanded) {
+        const targetsDirectory = candidate.endsWith('/') || specifier.endsWith('/');
+        const hasExplicitExt =
+          !targetsDirectory && EXPLICIT_EXT_PATTERN.test(candidate);
+        const hit = resolveModulePath(
+          candidate,
+          { targetsDirectory, hasExplicitExt },
+          fileSet,
+        );
+        if (hit) return hit;
+      }
+
+      // 3. Bare packages and anything else → external.
+      return null;
     },
   };
 };

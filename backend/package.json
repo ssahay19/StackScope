@@ -10,14 +10,16 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run && node --import tsx --test src/services/__tests__/analysisStore.test.ts",
+    "test:watch": "vitest",
+    "test:store": "node --import tsx --test src/services/__tests__/analysisStore.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
+    "jsonc-parser": "^3.3.1",
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
     "simple-git": "^3.27.0",

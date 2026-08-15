@@ -226,4 +226,45 @@ describe('parsingPipeline — integration', () => {
     expect(util.symbols.map((s) => s.name).sort()).toEqual(['Util', 'helper']);
     expect(util.category).toBe('source');
   });
+
+  it('resolves tsconfig path aliases into graph edges (Phase 5B)', async () => {
+    const subdir = await mkdtemp(join(tmp, 'alias-'));
+    const files: FixtureFile[] = [
+      {
+        path: 'tsconfig.json',
+        content: `{
+  // JSONC
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] },
+  }
+}
+`,
+      },
+      {
+        path: 'src/components/Button.tsx',
+        content: `export function Button() { return null; }\n`,
+      },
+      {
+        path: 'src/pages/home.ts',
+        content: `import { Button } from '@/components/Button';\nimport React from 'react';\nexport const page = Button;\n`,
+      },
+    ];
+    await writeFixture(subdir, files);
+    const tree = buildTree('alias', files);
+
+    const { graph, summary } = await runParsingPipeline({ clonedRoot: subdir, tree });
+
+    expect(summary.filesFailed).toBe(0);
+    expect(graph.edges).toContainEqual({
+      from: 'src/pages/home.ts',
+      to: 'src/components/Button.tsx',
+    });
+
+    const home = graph.nodes.find((n) => n.filePath === 'src/pages/home.ts')!;
+    const aliasImp = home.imports.find((i) => i.source === '@/components/Button');
+    expect(aliasImp?.resolvedPath).toBe('src/components/Button.tsx');
+    const reactImp = home.imports.find((i) => i.source === 'react');
+    expect(reactImp?.resolvedPath).toBeNull();
+  });
 });

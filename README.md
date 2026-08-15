@@ -11,27 +11,26 @@ This is not an AI chatbot. It is a repository navigation aid.
 
 ---
 
-## Current scope (Phase 5A)
+## Current scope (Phase 5B)
 
-Phase 5A adds **Python parsing and dependency resolution** on top of the
-Phase 4 persistent, shareable analyses.
+Phase 5B adds **TypeScript/JavaScript path-alias resolution** from
+`tsconfig.json` / `jsconfig.json` on top of Phase 5A Python support.
 
 - Paste a `https://github.com/<owner>/<repo>` URL.
 - Backend clones (`--depth 1`), scans, parses **TypeScript, JavaScript, and
   Python** with tree-sitter, builds a directed dependency graph, and
   **persists the full analysis in SQLite** (keyed by UUID, with TTL + LRU).
+- JS/TS **path aliases** (`@/*`, etc.) are expanded via `compilerOptions.paths`
+  + `baseUrl` (JSONC-tolerant; one-level `extends` supported). Bare packages
+  like `react` stay external.
 - Python imports resolve by module path (`a.b.c` → `a/b/c.py` or
-  `a/b/c/__init__.py`, plus relative `.` / `..` forms). Stdlib and pip
-  packages stay external (`resolvedPath: null`).
-- Frontend lands on a **shareable** `/graph/:id` URL. Hard-refreshing the page,
-  bookmarking it, or sending the link to a teammate all reload the same
-  analysis from the backend. The overview lives at `/result/:id`.
-- Both pages expose a **Copy link** button that copies an absolute shareable URL.
-- Graph legend includes a Python color for source `.py` nodes.
+  `a/b/c/__init__.py`, plus relative `.` / `..` forms).
+- Frontend lands on a **shareable** `/graph/:id` URL with a **Copy link**
+  affordance. Graph legend includes a Python color for source `.py` nodes.
 
 **Still not included (deferred):**
 
-- No `tsconfig` path-alias resolution (Phase 5B)
+- No deep `extends` chains, project references, or per-file tsconfig resolution
 - No AI summaries, embeddings, chat, or natural-language search
 - No job queue / BullMQ, no Redis, no Postgres (SQLite only)
 - No authentication, no private repositories, no per-user history
@@ -333,9 +332,10 @@ keyboard-accessible and has visible focus states.
 - **TypeScript, JavaScript, and Python are parsed** (including `.tsx`, `.jsx`,
   `.mjs`, `.cjs`, `.mts`, `.cts`, `.py`). Files in other languages are recorded in
   the tree but have `languageSupported: false` on their dependency node.
-- **Only relative imports are resolved for JS/TS** (`./foo`, `../bar`). Bare
-  specifiers (`react`, `lodash`) are recorded as external. Path aliases (`@/foo`)
-  are not resolved yet — that requires reading `tsconfig.json` (Phase 5B).
+- **JS/TS relative imports and tsconfig path aliases are resolved** (`./foo`,
+  `@/components/Button`). Bare packages (`react`, `lodash`) stay external.
+  Deep `extends` chains and project references are not followed — only one
+  level of `extends` is merged.
 - **Python resolves by module path** against the scanned file set only
   (`a.b` → `a/b.py` or `a/b/__init__.py`; relative `.` / `..`). Namespace
   packages without `__init__.py` and dynamic `importlib` are not supported.
@@ -353,7 +353,6 @@ keyboard-accessible and has visible focus states.
 
 ## Future roadmap (not implemented)
 
-- **Phase 5B:** `tsconfig.json`-aware path alias resolution.
 - **Phase 5C:** LLM-generated module summaries, provider-agnostic
   (`openai`, `gemini`), cached by `(repoUrl, commitSha, promptVersion)`.
   Always opt-in. GitHub OAuth for private repositories, webhooks to
