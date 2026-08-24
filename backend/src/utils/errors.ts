@@ -16,7 +16,11 @@ export type AppErrorCode =
   | 'SCAN_FAILED'
   | 'NOT_FOUND'
   | 'RATE_LIMITED'
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  | 'AI_NOT_CONFIGURED'
+  | 'AI_TIMEOUT'
+  | 'AI_RATE_LIMITED'
+  | 'AI_FAILED';
 
 export class AppError extends Error {
   public readonly code: AppErrorCode;
@@ -67,6 +71,34 @@ export class NotFoundError extends AppError {
   constructor(message = 'Resource not found.') {
     super('NOT_FOUND', 404, message);
     this.name = 'NotFoundError';
+  }
+}
+
+export class AiNotConfiguredError extends AppError {
+  constructor(message = 'AI summaries are not configured on this server.') {
+    super('AI_NOT_CONFIGURED', 503, message);
+    this.name = 'AiNotConfiguredError';
+  }
+}
+
+export class AiTimeoutError extends AppError {
+  constructor(message = 'The AI provider timed out. Try again shortly.', cause?: unknown) {
+    super('AI_TIMEOUT', 504, message, cause);
+    this.name = 'AiTimeoutError';
+  }
+}
+
+export class AiRateLimitedError extends AppError {
+  constructor(message = 'The AI provider rate-limited this request. Try again shortly.', cause?: unknown) {
+    super('AI_RATE_LIMITED', 429, message, cause);
+    this.name = 'AiRateLimitedError';
+  }
+}
+
+export class AiFailedError extends AppError {
+  constructor(message = 'Failed to generate an architecture overview.', cause?: unknown) {
+    super('AI_FAILED', 502, message, cause);
+    this.name = 'AiFailedError';
   }
 }
 

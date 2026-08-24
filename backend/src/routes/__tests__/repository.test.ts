@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../../app.js';
 import { analysisStore } from '../../services/analysisService.js';
@@ -125,6 +125,60 @@ describe('GET /api/repository/:id/insights', () => {
     );
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('GET /api/repository/:id/summary', () => {
+  it('returns unavailable when AI is not configured', async () => {
+    const { setLlmProviderForTests } = await import('../../services/summaryService.js');
+    setLlmProviderForTests(null);
+    const record = seedAnalysis();
+    const res = await request(app).get(`/api/repository/${record.id}/summary`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'unavailable',
+      code: 'AI_NOT_CONFIGURED',
+    });
+    setLlmProviderForTests(undefined);
+  });
+
+  it('returns cached summary on the second call (provider once)', async () => {
+    const { setLlmProviderForTests } = await import('../../services/summaryService.js');
+    const generate = vi.fn(async () =>
+      'Cached architecture overview text that is long enough to pass validation checks.',
+    );
+    setLlmProviderForTests({ name: 'mock', generate });
+
+    const record = seedAnalysis();
+    const first = await request(app).get(`/api/repository/${record.id}/summary`);
+    const second = await request(app).get(`/api/repository/${record.id}/summary`);
+
+    expect(first.status).toBe(200);
+    expect(first.body.status).toBe('ok');
+    expect(first.body.cached).toBe(false);
+    expect(second.body.cached).toBe(true);
+    expect(second.body.text).toBe(first.body.text);
+    expect(generate).toHaveBeenCalledTimes(1);
+
+    setLlmProviderForTests(undefined);
+  });
+
+  it('returns a clean error when the provider fails', async () => {
+    const { setLlmProviderForTests } = await import('../../services/summaryService.js');
+    const { AiFailedError } = await import('../../utils/errors.js');
+    setLlmProviderForTests({
+      name: 'mock',
+      generate: async () => {
+        throw new AiFailedError('The AI provider returned an error.');
+      },
+    });
+
+    const record = seedAnalysis();
+    const res = await request(app).get(`/api/repository/${record.id}/summary`);
+    expect(res.status).toBe(502);
+    expect(res.body.error.code).toBe('AI_FAILED');
+
+    setLlmProviderForTests(undefined);
   });
 });
 

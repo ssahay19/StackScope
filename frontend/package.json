@@ -9,8 +9,9 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "tsc -b --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run && node --experimental-strip-types --test src/hooks/__tests__/analysisById.logic.test.ts",
+    "test:watch": "vitest",
+    "test:logic": "node --experimental-strip-types --test src/hooks/__tests__/analysisById.logic.test.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.2",

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAnalysis } from '../services/repositoryApi';
 import { HttpError } from '../services/httpClient';
+import { decideAnalysisLoad } from '../lib/analysisLoad';
 import type { RepositoryAnalysis } from '../types/repository';
 
 /**
@@ -50,21 +51,24 @@ export const useAnalysisById = (
   }, []);
 
   useEffect(() => {
-    if (!id) {
+    const action = decideAnalysisLoad({ id, initial, reloadCounter });
+
+    if (action === 'idle') {
       setStatus('idle');
       setAnalysis(null);
       setError(null);
       return;
     }
 
-    // Prefer the in-memory analysis handed over via router state when the ids
-    // match — but only on the first load. `reload()` must always hit the API.
-    if (initial && initial.id === id && reloadCounter === 0) {
-      setAnalysis(initial);
+    if (action === 'use-initial') {
+      setAnalysis(initial as RepositoryAnalysis);
       setStatus('success');
       setError(null);
       return;
     }
+
+    // action === 'fetch'
+    if (!id) return;
 
     controllerRef.current?.abort();
     const controller = new AbortController();

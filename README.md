@@ -11,10 +11,11 @@ This is not an AI chatbot. It is a repository navigation aid.
 
 ---
 
-## Current scope (Phase 5D)
+## Current scope (Phase 6)
 
-Phase 5D adds **Architecture Insights** — deterministic structural metrics
-computed from the existing dependency graph (no AI, no clustering).
+Phase 6 adds an optional, on-demand **AI architecture overview** ("Explain this
+repository") built only from already-computed structured facts — never raw
+code, and never as part of the default analyze path.
 
 - Paste a `https://github.com/<owner>/<repo>` URL.
 - Backend clones (`--depth 1`), scans, parses **TypeScript, JavaScript, and
@@ -28,16 +29,22 @@ computed from the existing dependency graph (no AI, no clustering).
 - **`GET /api/repository/:id/insights`** returns ranked most-depended-on files,
   hubs, entry points, orphans, circular *chains*, dependency depth (on the
   cycle-collapsed DAG), and folder-based module groups.
-- Frontend **Architecture Insights** panel on `/result/:id` (and an Insights
-  toggle on `/graph/:id`); clicking a listed file selects it in the inspector /
-  graph.
+- **`GET /api/repository/:id/summary`** (opt-in) feeds those facts (+ language
+  stats + a short README excerpt) to an LLM via a thin `LlmProvider` interface.
+  Results are cached by `(analysisId, promptVersion)`. Without `LLM_API_KEY`,
+  the endpoint returns a clean `unavailable` state and the rest of the app is
+  unchanged.
+- Frontend **Architecture Insights** panel includes an optional
+  **Explain this repository** control (idle / loading / result / error /
+  unavailable). Deterministic insights remain the default.
 - Frontend lands on a **shareable** `/graph/:id` URL with a **Copy link**
   affordance. Graph legend includes a Python color for source `.py` nodes.
 
 **Still not included (deferred):**
 
+- No chat, follow-ups, embeddings, or semantic code search
+- No per-file AI explanations
 - No deep `extends` chains, project references, or per-file tsconfig resolution
-- No AI summaries, embeddings, chat, or natural-language search
 - No graph-clustering / community-detection (folder groups only)
 - No job queue / BullMQ, no Redis, no Postgres (SQLite only)
 - No authentication, no private repositories, no per-user history
@@ -94,6 +101,13 @@ MAX_PARSE_TIME_MS=30000
 ANALYSIS_TTL_MS=1800000
 ANALYSIS_MAX_ENTRIES=50
 ANALYSIS_DB_PATH=data/analyses.db
+
+# Optional AI architecture overview (Phase 6)
+# Leave LLM_API_KEY empty to keep AI disabled (endpoint returns unavailable).
+LLM_PROVIDER=openai
+LLM_API_KEY=
+LLM_MODEL=gpt-4o-mini
+LLM_TIMEOUT_MS=30000
 ```
 
 Defaults match the values above, so a `.env` file is only required if you want
@@ -240,6 +254,38 @@ function of nodes/edges — no AI.
 }
 ```
 
+### `GET /api/repository/:id/summary`
+
+Opt-in AI architecture overview (Phase 6). Reads the stored analysis, builds a
+bounded prompt from insights + languages + optional README excerpt, calls the
+configured LLM provider, and caches the result by `(id, promptVersion)`.
+
+When `LLM_API_KEY` is unset:
+
+```json
+{
+  "status": "unavailable",
+  "code": "AI_NOT_CONFIGURED",
+  "message": "AI architecture overviews are not configured. …"
+}
+```
+
+When configured:
+
+```json
+{
+  "status": "ok",
+  "text": "…",
+  "cached": false,
+  "promptVersion": "v1",
+  "provider": "openai",
+  "generatedAt": "2026-08-15T12:00:00.000Z",
+  "promptChars": 2400
+}
+```
+
+Never invoked by `POST /api/analyze`.
+
 ### `GET /api/repository/:id/file/*`
 
 Everything after `/file/` is the repo-relative file path.
@@ -384,10 +430,11 @@ keyboard-accessible and has visible focus states.
 
 ## Future roadmap (not implemented)
 
-- **Phase 5C:** LLM-generated module summaries, provider-agnostic
-  (`openai`, `gemini`), cached by `(repoUrl, commitSha, promptVersion)`.
-  Always opt-in. GitHub OAuth for private repositories, webhooks to
-  invalidate analyses on push.
+- Per-file AI explanations (fast-follow after Phase 6).
+- Additional LLM providers (`gemini`, etc.) behind the same `LlmProvider`
+  interface; prompt caching by `(repoUrl, commitSha, promptVersion)`.
+- GitHub OAuth for private repositories, webhooks to invalidate analyses on
+  push.
 - Additional tree-sitter grammars (Go, Rust). Optional Postgres / Redis if
   multi-instance deployment is needed.
 
@@ -410,6 +457,10 @@ keyboard-accessible and has visible focus states.
 │       │   ├── analysisService.ts          # orchestrator (clone → scan → parse → store)
 │       │   ├── analysisStore.ts            # SQLite-backed store w/ TTL + LRU
 │       │   ├── architectureInsightsService.ts  # Phase 5D deterministic metrics
+│       │   ├── summaryService.ts               # Phase 6 opt-in AI overview
+│       │   ├── summaryPrompt.ts
+│       │   ├── readmeExcerpt.ts
+│       │   ├── llm/                            # LlmProvider + OpenAI
 │       │   ├── gitService.ts               # simple-git wrapper
 │       │   ├── repoScannerService.ts       # tree walker + budgets (unchanged)
 │       │   ├── languageDetection.ts        # ext → language mapping

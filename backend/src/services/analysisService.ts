@@ -2,6 +2,7 @@ import { cloneRepository } from './gitService.js';
 import { scanRepository } from './repoScannerService.js';
 import { runParsingPipeline } from './parser/parsingPipeline.js';
 import { AnalysisStore, type StoredAnalysis } from './analysisStore.js';
+import { readReadmeExcerpt } from './readmeExcerpt.js';
 import { createTempDir, removeDir } from '../utils/fileSystem.js';
 import { parseGithubRepoUrl } from '../utils/githubUrl.js';
 import { logger } from '../utils/logger.js';
@@ -17,11 +18,12 @@ import type { RepositoryAnalysis } from '../types/repository.js';
  *   3. clone the repository                   (Phase 1)
  *   4. scan the working tree                  (Phase 1, unchanged)
  *   5. run the parsing pipeline               (Phase 2)
- *   6. store the result in the analysisStore  (Phase 4 — SQLite-backed)
- *   7. cleanup temp dir in `finally`
+ *   6. optionally capture a short README excerpt (Phase 6 prompt input)
+ *   7. store the result in the analysisStore  (Phase 4 — SQLite-backed)
+ *   8. cleanup temp dir in `finally`
  *
- * The scanner is not modified. Parsing consumes the scan result. The store's
- * interface is unchanged from Phase 2; only its implementation moved to disk.
+ * AI generation is never invoked here — summaries are opt-in via
+ * GET /api/repository/:id/summary.
  */
 
 const log = logger.child({ service: 'analysisService' });
@@ -52,12 +54,18 @@ export const analyzeRepository = async (repoUrl: unknown): Promise<RepositoryAna
       tree: scan.tree,
     });
 
+    const readmeExcerpt = await readReadmeExcerpt(tempDir);
+
     // `id` is added by the store; we hand it a "not-yet-id'd" object.
     const withoutId: Omit<RepositoryAnalysis, 'id'> = {
       ...scan,
       dependencySummary: summary,
     };
-    const record: StoredAnalysis = analysisStore.put({ analysis: withoutId, graph });
+    const record: StoredAnalysis = analysisStore.put({
+      analysis: withoutId,
+      graph,
+      readmeExcerpt,
+    });
     return record.analysis;
   } finally {
     try {

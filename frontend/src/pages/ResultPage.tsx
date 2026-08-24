@@ -141,6 +141,7 @@ const ResultPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
           error={insightsState.error}
           onReload={insightsState.reload}
           onSelectFile={inspector.select}
+          repositoryId={analysis.id}
         />
       </motion.div>
 

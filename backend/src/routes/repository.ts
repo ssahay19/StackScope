@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { analysisStore } from '../services/analysisService.js';
 import { computeArchitectureInsights } from '../services/architectureInsightsService.js';
+import { summarizeRepository } from '../services/summaryService.js';
 import { NotFoundError } from '../utils/errors.js';
 import type { DependencyNode } from '../types/parsing.js';
 
@@ -10,10 +11,11 @@ import type { DependencyNode } from '../types/parsing.js';
  *   GET /api/repository/:id                    → the full stored analysis
  *   GET /api/repository/:id/dependencies       → the full graph
  *   GET /api/repository/:id/insights           → architecture insights (Phase 5D)
+ *   GET /api/repository/:id/summary            → AI overview (Phase 6, opt-in)
  *   GET /api/repository/:id/file/<filePath>    → a single file's node
  *
- * All four read from the analysis store; each returns 404 if the analysis
- * has expired or was evicted.
+ * All five read from the analysis store; each returns 404 if the analysis
+ * has expired or was evicted. Summary never runs during analyze.
  */
 
 const router = Router();
@@ -43,6 +45,18 @@ router.get('/:id/insights', (req: Request, res: Response, next: NextFunction) =>
     const { id } = req.params as { id: string };
     const record = analysisStore.get(id);
     res.json(computeArchitectureInsights(record.graph));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/summary', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as { id: string };
+    // Touch the store first so unknown ids 404 before we talk about AI config.
+    analysisStore.get(id);
+    const result = await summarizeRepository(id);
+    res.json(result);
   } catch (err) {
     next(err);
   }

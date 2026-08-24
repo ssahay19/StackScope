@@ -1,5 +1,6 @@
 import type { DependencyGraph, FileInspectorResponse } from '../types/parsing';
 import type { ArchitectureInsights } from '../types/insights';
+import type { RepositorySummaryResponse } from '../types/summary';
 import type { RepositoryAnalysis } from '../types/repository';
 import { getJson } from './httpClient';
 
@@ -17,6 +18,10 @@ export const getDependencies = (id: string, signal?: AbortSignal): Promise<Depen
 /** Phase 5D — deterministic architecture metrics over the stored graph. */
 export const getInsights = (id: string, signal?: AbortSignal): Promise<ArchitectureInsights> =>
   getJson<ArchitectureInsights>(`/repository/${encodeURIComponent(id)}/insights`, { signal });
+
+/** Phase 6 — opt-in AI architecture overview (structured facts only). */
+export const getSummary = (id: string, signal?: AbortSignal): Promise<RepositorySummaryResponse> =>
+  getJson<RepositorySummaryResponse>(`/repository/${encodeURIComponent(id)}/summary`, { signal });
 
 export const getFileInspector = (
   id: string,

@@ -4,6 +4,7 @@ import { Spinner } from '../ui/Spinner';
 import { Button } from '../ui/Button';
 import type { ArchitectureInsights } from '../../types/insights';
 import type { InsightsError, InsightsStatus } from '../../hooks/useArchitectureInsights';
+import { useRepositorySummary } from '../../hooks/useRepositorySummary';
 
 interface ArchitectureInsightsPanelProps {
   status: InsightsStatus;
@@ -12,6 +13,8 @@ interface ArchitectureInsightsPanelProps {
   onReload: () => void;
   /** Optional: clicking a listed file selects it in the tree/graph. */
   onSelectFile?: (filePath: string) => void;
+  /** When set, shows the optional Phase 6 "Explain this repository" control. */
+  repositoryId?: string;
 }
 
 const FileButton = ({
@@ -49,7 +52,9 @@ export const ArchitectureInsightsPanel = ({
   error,
   onReload,
   onSelectFile,
+  repositoryId,
 }: ArchitectureInsightsPanelProps) => {
+  const aiSummary = useRepositorySummary(repositoryId ?? null);
   if (status === 'loading' || status === 'idle') {
     return (
       <GlassCard>
@@ -97,6 +102,54 @@ export const ArchitectureInsightsPanel = ({
             : ''}
         </p>
       </div>
+
+      {repositoryId ? (
+        <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-white/85">Explain this repository</div>
+              <p className="mt-0.5 text-xs text-white/40">
+                Optional AI overview from the metrics above — not a chatbot, and never part of
+                analyze.
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="md"
+              isLoading={aiSummary.status === 'loading'}
+              onClick={aiSummary.explain}
+              disabled={aiSummary.status === 'loading'}
+            >
+              {aiSummary.status === 'success' ? 'Explain again' : 'Explain'}
+            </Button>
+          </div>
+
+          {aiSummary.status === 'unavailable' ? (
+            <p className="mt-3 text-sm text-amber-100/70">
+              {aiSummary.unavailableMessage ?? 'AI is not configured on this server.'}
+            </p>
+          ) : null}
+
+          {aiSummary.status === 'error' ? (
+            <div className="mt-3">
+              <p className="text-sm text-red-200/90">{aiSummary.error?.message}</p>
+              <Button size="md" variant="ghost" className="mt-2" onClick={aiSummary.explain}>
+                Try again
+              </Button>
+            </div>
+          ) : null}
+
+          {aiSummary.status === 'success' && aiSummary.text ? (
+            <div className="mt-3">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/75">{aiSummary.text}</p>
+              <p className="mt-2 text-[11px] text-white/35">
+                {aiSummary.cached ? 'Cached overview' : 'Fresh overview'} · AI narrative over
+                deterministic insights
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div>

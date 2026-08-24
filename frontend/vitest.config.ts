@@ -8,6 +8,7 @@ export default defineConfig({
     globals: false,
     setupFiles: ['./src/test-setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    exclude: ['src/hooks/__tests__/analysisById.logic.test.ts'],
     css: false,
     testTimeout: 15_000,
     hookTimeout: 30_000,

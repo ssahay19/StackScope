@@ -8,32 +8,38 @@ import { NotFoundError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 
 /**
- * analysisStore — Phase 4
+ * analysisStore — Phase 4 (+ Phase 6 summary cache in the JSON payload)
  *
  * Persistent keyed store of completed analyses, backed by SQLite via
- * `better-sqlite3`. Behavior contract (identical to Phase 2's in-memory store):
+ * `better-sqlite3`. Behavior contract:
  *
  *   - deterministic ids (UUID v4) returned to clients
  *   - TTL-based expiry (default 30 minutes)
- *   - hard entry cap with LRU eviction, so a busy server cannot grow the DB
- *     without bound
+ *   - hard entry cap with LRU eviction
  *   - `put(...) → StoredAnalysis`
  *   - `get(id) → StoredAnalysis` — throws NotFoundError on miss/expiry
+ *   - `saveAiSummary(id, promptVersion, entry)` — Phase 6 cache write
  *   - `size() → number`
  *
- * The class is deliberately kept as `AnalysisStore` (the original name) so
- * `analysisService` and the routes are unchanged.
- *
- * The full `StoredAnalysis` (analysis + graph) is serialized as a single JSON
- * blob per row. That trades a tiny amount of storage efficiency for a very
- * simple schema and zero object-relational mapping. Round-trip fidelity is
- * guaranteed because our DTOs are pure JSON (no Sets, Maps, Dates on the wire).
+ * Schema is still one JSON blob per analysis row. Phase 6 extends the blob
+ * with `readmeExcerpt` and `aiSummaries` — no new tables.
  */
+
+export interface CachedAiSummary {
+  text: string;
+  generatedAt: string;
+  provider: string;
+  promptVersion: string;
+}
 
 export interface StoredAnalysis {
   id: string;
   analysis: RepositoryAnalysis;
   graph: DependencyGraph;
+  /** Short README excerpt captured at analyze time (optional). */
+  readmeExcerpt: string | null;
+  /** Cache keyed by promptVersion. */
+  aiSummaries: Record<string, CachedAiSummary>;
   storedAt: number;
   expiresAt: number;
   lastAccessedAt: number;
@@ -56,6 +62,13 @@ interface Row {
   last_accessed_at: number;
 }
 
+interface StorePayload {
+  analysis: RepositoryAnalysis;
+  graph: DependencyGraph;
+  readmeExcerpt?: string | null;
+  aiSummaries?: Record<string, CachedAiSummary>;
+}
+
 const log = logger.child({ service: 'analysisStore' });
 
 export class AnalysisStore {
@@ -71,6 +84,7 @@ export class AnalysisStore {
   private readonly stmtCount: Statement;
   private readonly stmtSelectVictims: Statement;
   private readonly stmtUpdateAccess: Statement;
+  private readonly stmtUpdateData: Statement;
 
   constructor(options: AnalysisStoreOptions) {
     this.ttlMs = options.ttlMs;
@@ -81,9 +95,7 @@ export class AnalysisStore {
     if (path !== ':memory:') ensureDirectory(path);
     this.db = new Database(path);
 
-    // WAL improves concurrent reader throughput and makes single-writer commits
-    // faster. `synchronous = NORMAL` is the recommended pairing for WAL in
-    // most Node.js deployments.
+    this.db.pragma('busy_timeout = 5000');
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = NORMAL');
     this.db.pragma('foreign_keys = ON');
@@ -114,31 +126,44 @@ export class AnalysisStore {
     this.stmtUpdateAccess = this.db.prepare(`
       UPDATE analyses SET last_accessed_at = @ts WHERE id = @id
     `);
+    this.stmtUpdateData = this.db.prepare(`
+      UPDATE analyses SET data = @data, last_accessed_at = @ts WHERE id = @id
+    `);
 
     log.info({ dbPath: path, ttlMs: this.ttlMs, maxEntries: this.maxEntries }, 'analysis store ready');
   }
 
-  put(input: { analysis: Omit<RepositoryAnalysis, 'id'>; graph: DependencyGraph }): StoredAnalysis {
+  put(input: {
+    analysis: Omit<RepositoryAnalysis, 'id'>;
+    graph: DependencyGraph;
+    readmeExcerpt?: string | null;
+  }): StoredAnalysis {
     const now = this.now();
     this.deleteExpired(now);
 
     const id = randomUUID();
     const analysisWithId: RepositoryAnalysis = { ...input.analysis, id };
+    const readmeExcerpt = input.readmeExcerpt ?? null;
     const record: StoredAnalysis = {
       id,
       analysis: analysisWithId,
       graph: input.graph,
+      readmeExcerpt,
+      aiSummaries: {},
       storedAt: now,
       expiresAt: now + this.ttlMs,
       lastAccessedAt: now,
     };
 
-    // We only need the *payload* (analysis + graph) in the blob. Timestamps
-    // live in dedicated columns so we can query them.
-    const payload = JSON.stringify({ analysis: record.analysis, graph: record.graph });
+    const payload: StorePayload = {
+      analysis: record.analysis,
+      graph: record.graph,
+      readmeExcerpt: record.readmeExcerpt,
+      aiSummaries: record.aiSummaries,
+    };
     this.stmtInsert.run({
       id,
-      data: payload,
+      data: JSON.stringify(payload),
       stored_at: record.storedAt,
       expires_at: record.expiresAt,
       last_accessed_at: record.lastAccessedAt,
@@ -159,16 +184,32 @@ export class AnalysisStore {
     }
 
     this.stmtUpdateAccess.run({ ts: now, id });
+    return this.rowToRecord(row, now);
+  }
 
-    const parsed = JSON.parse(row.data) as { analysis: RepositoryAnalysis; graph: DependencyGraph };
-    return {
-      id,
-      analysis: parsed.analysis,
-      graph: parsed.graph,
-      storedAt: row.stored_at,
-      expiresAt: row.expires_at,
-      lastAccessedAt: now,
+  /**
+   * Persist a generated AI summary under `promptVersion` (Phase 6 cache).
+   * Throws NotFoundError if the analysis is missing/expired.
+   */
+  saveAiSummary(id: string, promptVersion: string, entry: CachedAiSummary): CachedAiSummary {
+    const row = this.stmtSelect.get(id) as Row | undefined;
+    if (!row) throw new NotFoundError('Analysis not found or has expired.');
+
+    const now = this.now();
+    if (row.expires_at <= now) {
+      this.stmtDelete.run(id);
+      throw new NotFoundError('Analysis not found or has expired.');
+    }
+
+    const record = this.rowToRecord(row, now);
+    const next: StorePayload = {
+      analysis: record.analysis,
+      graph: record.graph,
+      readmeExcerpt: record.readmeExcerpt,
+      aiSummaries: { ...record.aiSummaries, [promptVersion]: entry },
     };
+    this.stmtUpdateData.run({ id, data: JSON.stringify(next), ts: now });
+    return entry;
   }
 
   size(): number {
@@ -179,6 +220,20 @@ export class AnalysisStore {
   /** Close the underlying DB handle. Callable more than once safely. */
   close(): void {
     if (this.db.open) this.db.close();
+  }
+
+  private rowToRecord(row: Row, now: number): StoredAnalysis {
+    const parsed = JSON.parse(row.data) as StorePayload;
+    return {
+      id: row.id,
+      analysis: parsed.analysis,
+      graph: parsed.graph,
+      readmeExcerpt: parsed.readmeExcerpt ?? null,
+      aiSummaries: parsed.aiSummaries ?? {},
+      storedAt: row.stored_at,
+      expiresAt: row.expires_at,
+      lastAccessedAt: now,
+    };
   }
 
   private deleteExpired(now: number): void {

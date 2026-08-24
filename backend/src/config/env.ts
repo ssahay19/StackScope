@@ -39,6 +39,13 @@ export interface AppEnv {
   analysisTtlMs: number;
   analysisMaxEntries: number;
   analysisDbPath: string;
+
+  // Phase 6 — optional LLM architecture overview.
+  /** Provider id; currently only `openai` is implemented. Empty = AI off. */
+  llmProvider: string;
+  llmApiKey: string;
+  llmModel: string;
+  llmTimeoutMs: number;
 }
 
 const rawNodeEnv = readString('NODE_ENV', 'development');
@@ -65,4 +72,9 @@ export const env: AppEnv = {
   // Set to `:memory:` for ephemeral runs (tests use this). Relative paths are
   // resolved from the backend's current working directory at startup.
   analysisDbPath: readString('ANALYSIS_DB_PATH', 'data/analyses.db'),
+
+  llmProvider: readString('LLM_PROVIDER', 'openai'),
+  llmApiKey: readString('LLM_API_KEY', ''),
+  llmModel: readString('LLM_MODEL', 'gpt-4o-mini'),
+  llmTimeoutMs: readInt('LLM_TIMEOUT_MS', 30_000),
 };

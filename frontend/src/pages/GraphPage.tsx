@@ -182,6 +182,7 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
                     error={insightsState.error}
                     onReload={insightsState.reload}
                     onSelectFile={(p) => handleSelect(p)}
+                    repositoryId={analysis.id}
                   />
                 </div>
               </div>
