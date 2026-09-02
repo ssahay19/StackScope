@@ -36,7 +36,7 @@ export const setLlmProviderForTests = (provider: LlmProvider | null | undefined)
   providerOverride = provider;
 };
 
-const resolveProvider = (): LlmProvider | null => {
+export const resolveLlmProvider = (): LlmProvider | null => {
   if (providerOverride !== undefined) return providerOverride;
   return createLlmProviderFromEnv();
 };
@@ -49,7 +49,7 @@ const inflight = new Map<string, Promise<SummaryResponse>>();
  * Never called from the default analyze path.
  */
 export const summarizeRepository = async (id: string): Promise<SummaryResponse> => {
-  const provider = resolveProvider();
+  const provider = resolveLlmProvider();
   if (!provider) {
     return {
       status: 'unavailable',

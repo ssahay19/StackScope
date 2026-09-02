@@ -1,6 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { analysisStore } from '../services/analysisService.js';
 import { computeArchitectureInsights } from '../services/architectureInsightsService.js';
+import { computeImpact } from '../services/impactService.js';
+import { explainFileImpact } from '../services/impactExplainService.js';
 import { summarizeRepository } from '../services/summaryService.js';
 import { NotFoundError } from '../utils/errors.js';
 import type { DependencyNode } from '../types/parsing.js';
@@ -8,17 +10,34 @@ import type { DependencyNode } from '../types/parsing.js';
 /**
  * Read-only repository endpoints.
  *
- *   GET /api/repository/:id                    → the full stored analysis
- *   GET /api/repository/:id/dependencies       → the full graph
- *   GET /api/repository/:id/insights           → architecture insights (Phase 5D)
- *   GET /api/repository/:id/summary            → AI overview (Phase 6, opt-in)
- *   GET /api/repository/:id/file/<filePath>    → a single file's node
- *
- * All five read from the analysis store; each returns 404 if the analysis
- * has expired or was evicted. Summary never runs during analyze.
+ *   GET /api/repository/:id
+ *   GET /api/repository/:id/dependencies
+ *   GET /api/repository/:id/insights
+ *   GET /api/repository/:id/summary
+ *   GET /api/repository/:id/impact/<filePath>          → change-impact (Phase 7)
+ *   GET /api/repository/:id/impact/<filePath>/explain  → AI impact explain (Phase 7)
+ *   GET /api/repository/:id/file/<filePath>
  */
 
 const router = Router();
+
+const decodeFilePath = (raw: string): string =>
+  decodeURIComponent(raw).replace(/^\/+/, '');
+
+/**
+ * Split `/impact/<filePath>` vs `/impact/<filePath>/explain`.
+ * The trailing segment `explain` is reserved as the AI suffix.
+ */
+const parseImpactPath = (
+  raw: string,
+): { filePath: string; explain: boolean } => {
+  const decoded = decodeFilePath(raw);
+  if (decoded.endsWith('/explain')) {
+    const filePath = decoded.slice(0, -'/explain'.length).replace(/\/+$/, '');
+    return { filePath, explain: true };
+  }
+  return { filePath: decoded, explain: false };
+};
 
 router.get('/:id', (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -53,7 +72,6 @@ router.get('/:id/insights', (req: Request, res: Response, next: NextFunction) =>
 router.get('/:id/summary', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params as { id: string };
-    // Touch the store first so unknown ids 404 before we talk about AI config.
     analysisStore.get(id);
     const result = await summarizeRepository(id);
     res.json(result);
@@ -62,13 +80,36 @@ router.get('/:id/summary', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
+router.get('/:id/impact/*', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as { id: string };
+    const rawPath = (req.params as Record<string, string>)[0] ?? '';
+    const { filePath, explain } = parseImpactPath(rawPath);
+    if (filePath.length === 0) {
+      throw new NotFoundError('File path is required.');
+    }
+
+    const record = analysisStore.get(id);
+    const impact = computeImpact(record.graph, filePath);
+    if (!impact) throw new NotFoundError('File not found in this repository analysis.');
+
+    if (explain) {
+      const result = await explainFileImpact(id, filePath);
+      res.json(result);
+      return;
+    }
+
+    res.json(impact);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id/file/*', (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params as { id: string };
-    // Everything after `/file/` is the file path. Express 4 exposes it as `req.params[0]`.
-    // We decode it because clients typically encode `/` slashes.
     const rawPath = (req.params as Record<string, string>)[0] ?? '';
-    const filePath = decodeURIComponent(rawPath).replace(/^\/+/, '');
+    const filePath = decodeFilePath(rawPath);
     if (filePath.length === 0) {
       throw new NotFoundError('File path is required.');
     }
@@ -79,7 +120,6 @@ router.get('/:id/file/*', (req: Request, res: Response, next: NextFunction) => {
     );
     if (!node) throw new NotFoundError('File not found in this repository analysis.');
 
-    // Return exactly the contract the frontend inspector needs.
     res.json({
       filePath: node.filePath,
       language: node.language,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import type { RepositoryAnalysis } from '../types/repository';
@@ -6,6 +6,8 @@ import { useAnalysisById } from '../hooks/useAnalysisById';
 import { useGraphData } from '../hooks/useGraphData';
 import { useFileInspector } from '../hooks/useFileInspector';
 import { useArchitectureInsights } from '../hooks/useArchitectureInsights';
+import { useFileImpact } from '../hooks/useFileImpact';
+import { useImpactExplain } from '../hooks/useImpactExplain';
 import { DependencyGraph } from '../components/graph/DependencyGraph';
 import { GraphSidePanel } from '../components/graph/GraphSidePanel';
 import { ArchitectureInsightsPanel } from '../components/repo/ArchitectureInsightsPanel';
@@ -74,8 +76,11 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
   const graphState = useGraphData(analysis.id);
   const inspector = useFileInspector(analysis.id);
   const insightsState = useArchitectureInsights(analysis.id);
+  const impactState = useFileImpact(analysis.id, inspector.selectedPath);
+  const explainState = useImpactExplain(analysis.id, inspector.selectedPath);
   const [panelOpen, setPanelOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
+  const [impactMode, setImpactMode] = useState(true);
 
   useEffect(() => {
     if (inspector.selectedPath) setPanelOpen(true);
@@ -85,6 +90,13 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
     inspector.select(path);
     if (path === null) setPanelOpen(false);
   };
+
+  const impactDownstreamPaths = useMemo(() => {
+    if (!impactState.impact) return undefined;
+    return new Set(impactState.impact.downstream.files.map((f) => f.filePath));
+  }, [impactState.impact]);
+
+  const down = impactState.impact?.downstream;
 
   return (
     <div className="flex h-[calc(100vh-72px)] w-full flex-col">
@@ -105,6 +117,11 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
                 {analysis.dependencySummary.circularDependencies === 1 ? '' : 's'}
               </Badge>
             ) : null}
+            {inspector.selectedPath && down ? (
+              <Badge tone="warning">
+                affects {down.total} ({down.directCount} direct)
+              </Badge>
+            ) : null}
           </div>
           <h1 className="mt-1 truncate text-xl font-semibold tracking-tight text-white">
             <span className="text-white/50">{analysis.owner}</span>
@@ -114,6 +131,15 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => setImpactMode((v) => !v)}
+            aria-pressed={impactMode}
+            disabled={!inspector.selectedPath}
+          >
+            {impactMode ? 'Impact on' : 'Impact'}
+          </Button>
           <Button
             variant="ghost"
             size="md"
@@ -164,7 +190,18 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
               filesInCycles={graphState.filesInCycles}
               selectedFilePath={inspector.selectedPath}
               onSelectFile={handleSelect}
+              impactMode={impactMode && inspector.selectedPath !== null}
+              impactDownstreamPaths={impactDownstreamPaths}
             />
+            {!inspector.selectedPath ? (
+              <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-4">
+                <GlassCard padded={false} className="pointer-events-none px-4 py-2.5">
+                  <p className="text-sm text-white/65">
+                    Select a file to see what a change would affect
+                  </p>
+                </GlassCard>
+              </div>
+            ) : null}
             <GraphSidePanel
               open={panelOpen && inspector.selectedPath !== null}
               onClose={() => handleSelect(null)}
@@ -172,6 +209,17 @@ const GraphPageContent = ({ analysis }: { analysis: RepositoryAnalysis }) => {
               status={inspector.status}
               data={inspector.data}
               error={inspector.error}
+              impactStatus={impactState.status}
+              impact={impactState.impact}
+              impactError={impactState.error}
+              impactMode={impactMode}
+              onToggleImpactMode={() => setImpactMode((v) => !v)}
+              explainStatus={explainState.status}
+              explainText={explainState.text}
+              explainCached={explainState.cached}
+              explainError={explainState.error}
+              explainUnavailable={explainState.unavailableMessage}
+              onExplainImpact={explainState.explain}
             />
             {insightsOpen ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 max-h-[55%] overflow-y-auto p-4 sm:left-auto sm:right-4 sm:w-[min(100%,28rem)]">

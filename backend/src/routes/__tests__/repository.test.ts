@@ -182,6 +182,37 @@ describe('GET /api/repository/:id/summary', () => {
   });
 });
 
+describe('GET /api/repository/:id/impact/*', () => {
+  it('returns impact for a known file', async () => {
+    const record = seedAnalysis();
+    const res = await request(app).get(`/api/repository/${record.id}/impact/index.ts`);
+    expect(res.status).toBe(200);
+    expect(res.body.filePath).toBe('index.ts');
+    expect(res.body.downstream.total).toBe(0);
+    expect(res.body.upstream.total).toBe(0);
+  });
+
+  it('returns 404 for an unknown file', async () => {
+    const record = seedAnalysis();
+    const res = await request(app).get(`/api/repository/${record.id}/impact/missing.ts`);
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('returns unavailable for /explain when AI is not configured', async () => {
+    const { setLlmProviderForTests } = await import('../../services/summaryService.js');
+    setLlmProviderForTests(null);
+    const record = seedAnalysis();
+    const res = await request(app).get(`/api/repository/${record.id}/impact/index.ts/explain`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'unavailable',
+      code: 'AI_NOT_CONFIGURED',
+    });
+    setLlmProviderForTests(undefined);
+  });
+});
+
 describe('GET /api/repository/:id/file/* (regression)', () => {
   it('returns a single file node and includes Phase 3 metadata', async () => {
     const record = seedAnalysis();

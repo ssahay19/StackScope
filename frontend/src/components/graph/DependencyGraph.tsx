@@ -59,6 +59,9 @@ interface DependencyGraphProps {
   filesInCycles: Set<string>;
   selectedFilePath: string | null;
   onSelectFile: (path: string | null) => void;
+  /** Phase 7 — when set, light up the downstream blast radius instead of 1-hop neighbors. */
+  impactMode?: boolean;
+  impactDownstreamPaths?: Set<string>;
 }
 
 const nodeTypes = { dependency: DependencyNode };
@@ -84,6 +87,8 @@ const DependencyGraphInner = ({
   filesInCycles,
   selectedFilePath,
   onSelectFile,
+  impactMode = false,
+  impactDownstreamPaths,
 }: DependencyGraphProps) => {
   const [filters, setFilters] = useState<GraphFilters>(emptyFilters);
   const [search, setSearch] = useState('');
@@ -157,8 +162,11 @@ const DependencyGraphInner = ({
 
         let highlight: DependencyNodeData['highlight'] = null;
         if (selectedFilePath) {
-          if (p.id === selectedFilePath) highlight = 'selected';
-          else if (
+          if (p.id === selectedFilePath) {
+            highlight = 'selected';
+          } else if (impactMode && impactDownstreamPaths) {
+            highlight = impactDownstreamPaths.has(p.id) ? 'impact' : 'dimmed';
+          } else if (
             neighborIndex.outgoing.get(selectedFilePath)?.has(p.id) ||
             neighborIndex.incoming.get(selectedFilePath)?.has(p.id)
           ) {
@@ -184,15 +192,25 @@ const DependencyGraphInner = ({
         };
       })
       .filter((n): n is Node<DependencyNodeData> => n !== null);
-  }, [positioned, nodesByPath, selectedFilePath, neighborIndex, searchMatches]);
+  }, [positioned, nodesByPath, selectedFilePath, neighborIndex, searchMatches, impactMode, impactDownstreamPaths]);
 
   const edges = useMemo<Edge<DependencyEdgeData>[]>(() => {
     return visibleEdges.map((e) => {
       let state: EdgeHighlightState = 'default';
       if (selectedFilePath) {
-        if (e.from === selectedFilePath) state = 'outgoing';
-        else if (e.to === selectedFilePath) state = 'incoming';
-        else state = 'dimmed';
+        if (impactMode && impactDownstreamPaths) {
+          const fromHit =
+            e.from === selectedFilePath || impactDownstreamPaths.has(e.from);
+          const toHit = e.to === selectedFilePath || impactDownstreamPaths.has(e.to);
+          if (fromHit && toHit) state = 'outgoing';
+          else state = 'dimmed';
+        } else if (e.from === selectedFilePath) {
+          state = 'outgoing';
+        } else if (e.to === selectedFilePath) {
+          state = 'incoming';
+        } else {
+          state = 'dimmed';
+        }
       }
       return {
         id: `${e.from}->${e.to}`,
@@ -203,7 +221,7 @@ const DependencyGraphInner = ({
         markerEnd: { type: MarkerType.ArrowClosed, color: 'rgba(255,255,255,0.35)' },
       };
     });
-  }, [visibleEdges, selectedFilePath]);
+  }, [visibleEdges, selectedFilePath, impactMode, impactDownstreamPaths]);
 
   // ------------- Auto-center on search matches -------------
   useEffect(() => {

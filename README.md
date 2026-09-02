@@ -11,11 +11,12 @@ This is not an AI chatbot. It is a repository navigation aid.
 
 ---
 
-## Current scope (Phase 6)
+## Current scope (Phase 7)
 
-Phase 6 adds an optional, on-demand **AI architecture overview** ("Explain this
-repository") built only from already-computed structured facts — never raw
-code, and never as part of the default analyze path.
+Phase 7 adds **change-impact analysis** — pick a file and see its blast radius
+(transitive dependents / dependencies), with optional AI explanation of that
+impact. This reframes StackScope from a dependency visualizer into a
+change-impact tool.
 
 - Paste a `https://github.com/<owner>/<repo>` URL.
 - Backend clones (`--depth 1`), scans, parses **TypeScript, JavaScript, and
@@ -34,6 +35,12 @@ code, and never as part of the default analyze path.
   Results are cached by `(analysisId, promptVersion)`. Without `LLM_API_KEY`,
   the endpoint returns a clean `unavailable` state and the rest of the app is
   unchanged.
+- **`GET /api/repository/:id/impact/<file>`** returns downstream/upstream blast
+  radius (direct vs transitive, hop distances). Opt-in AI via
+  **`.../impact/<file>/explain`**, cached by `(id, filePath, promptVersion)`.
+- On `/graph/:id`, selecting a file enables **Impact mode** (blast-radius
+  highlight + count badge + side-panel readout). Empty state invites:
+  "Select a file to see what a change would affect."
 - Frontend **Architecture Insights** panel includes an optional
   **Explain this repository** control (idle / loading / result / error /
   unavailable). Deterministic insights remain the default.
@@ -286,6 +293,27 @@ When configured:
 
 Never invoked by `POST /api/analyze`.
 
+### `GET /api/repository/:id/impact/*`
+
+Deterministic change-impact for a file (Phase 7). Path encoding matches `/file/*`.
+
+```json
+{
+  "filePath": "lib/utils.ts",
+  "downstream": {
+    "total": 66,
+    "directCount": 66,
+    "transitiveCount": 0,
+    "maxDistance": 1,
+    "files": [{ "filePath": "app/page.tsx", "distance": 1, "relation": "direct" }]
+  },
+  "upstream": { "total": 1, "directCount": 1, "transitiveCount": 0, "maxDistance": 1, "files": [] }
+}
+```
+
+Append `/explain` for the opt-in AI impact narrative (same `unavailable` / error
+shapes as `/summary`). Cached by `(id, filePath, impact-v1)`.
+
 ### `GET /api/repository/:id/file/*`
 
 Everything after `/file/` is the repo-relative file path.
@@ -430,7 +458,6 @@ keyboard-accessible and has visible focus states.
 
 ## Future roadmap (not implemented)
 
-- Per-file AI explanations (fast-follow after Phase 6).
 - Additional LLM providers (`gemini`, etc.) behind the same `LlmProvider`
   interface; prompt caching by `(repoUrl, commitSha, promptVersion)`.
 - GitHub OAuth for private repositories, webhooks to invalidate analyses on

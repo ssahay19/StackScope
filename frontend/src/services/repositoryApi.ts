@@ -1,5 +1,6 @@
 import type { DependencyGraph, FileInspectorResponse } from '../types/parsing';
 import type { ArchitectureInsights } from '../types/insights';
+import type { FileImpact } from '../types/impact';
 import type { RepositorySummaryResponse } from '../types/summary';
 import type { RepositoryAnalysis } from '../types/repository';
 import { getJson } from './httpClient';
@@ -23,17 +24,37 @@ export const getInsights = (id: string, signal?: AbortSignal): Promise<Architect
 export const getSummary = (id: string, signal?: AbortSignal): Promise<RepositorySummaryResponse> =>
   getJson<RepositorySummaryResponse>(`/repository/${encodeURIComponent(id)}/summary`, { signal });
 
+const encodeFilePath = (filePath: string): string =>
+  filePath.split('/').map(encodeURIComponent).join('/');
+
+/** Phase 7 — change-impact for a single file. */
+export const getImpact = (
+  id: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<FileImpact> =>
+  getJson<FileImpact>(
+    `/repository/${encodeURIComponent(id)}/impact/${encodeFilePath(filePath)}`,
+    { signal },
+  );
+
+/** Phase 7 — opt-in AI explanation of a file's blast radius. */
+export const getImpactExplain = (
+  id: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<RepositorySummaryResponse> =>
+  getJson<RepositorySummaryResponse>(
+    `/repository/${encodeURIComponent(id)}/impact/${encodeFilePath(filePath)}/explain`,
+    { signal },
+  );
+
 export const getFileInspector = (
   id: string,
   filePath: string,
   signal?: AbortSignal,
-): Promise<FileInspectorResponse> => {
-  // The server route is `/file/*` — the file path is embedded, slashes and all.
-  // We encode each segment so unusual characters don't break routing, while
-  // keeping the slashes as path separators.
-  const encoded = filePath.split('/').map(encodeURIComponent).join('/');
-  return getJson<FileInspectorResponse>(
-    `/repository/${encodeURIComponent(id)}/file/${encoded}`,
+): Promise<FileInspectorResponse> =>
+  getJson<FileInspectorResponse>(
+    `/repository/${encodeURIComponent(id)}/file/${encodeFilePath(filePath)}`,
     { signal },
   );
-};

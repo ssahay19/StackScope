@@ -2,12 +2,19 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { basename } from '../../lib/paths';
 import { Badge } from '../ui/Badge';
 import { Spinner } from '../ui/Spinner';
+import { Button } from '../ui/Button';
 import type {
   CodeSymbol,
   FileInspectorResponse,
   ImportRef,
   SymbolKind,
 } from '../../types/parsing';
+import type { FileImpact } from '../../types/impact';
+import type { ImpactStatus } from '../../hooks/useFileImpact';
+import type {
+  ImpactExplainError,
+  ImpactExplainStatus,
+} from '../../hooks/useImpactExplain';
 
 interface GraphSidePanelProps {
   open: boolean;
@@ -16,6 +23,18 @@ interface GraphSidePanelProps {
   status: 'idle' | 'loading' | 'success' | 'error';
   data: FileInspectorResponse | null;
   error: { code: string; message: string } | null;
+  /** Phase 7 change-impact */
+  impactStatus?: ImpactStatus;
+  impact?: FileImpact | null;
+  impactError?: { code: string; message: string } | null;
+  impactMode?: boolean;
+  onToggleImpactMode?: () => void;
+  explainStatus?: ImpactExplainStatus;
+  explainText?: string | null;
+  explainCached?: boolean;
+  explainError?: ImpactExplainError | null;
+  explainUnavailable?: string | null;
+  onExplainImpact?: () => void;
 }
 
 const SYMBOL_KIND_LABELS: Record<SymbolKind, string> = {
@@ -95,6 +114,17 @@ export const GraphSidePanel = ({
   status,
   data,
   error,
+  impactStatus = 'idle',
+  impact = null,
+  impactError = null,
+  impactMode = false,
+  onToggleImpactMode,
+  explainStatus = 'idle',
+  explainText = null,
+  explainCached = false,
+  explainError = null,
+  explainUnavailable = null,
+  onExplainImpact,
 }: GraphSidePanelProps) => (
   <AnimatePresence>
     {open ? (
@@ -150,7 +180,21 @@ export const GraphSidePanel = ({
               {error.message}
             </div>
           ) : status === 'success' && data ? (
-            <PanelContent data={data} onSelectFile={onSelectFile} />
+            <PanelContent
+              data={data}
+              onSelectFile={onSelectFile}
+              impactStatus={impactStatus}
+              impact={impact}
+              impactError={impactError}
+              impactMode={impactMode}
+              onToggleImpactMode={onToggleImpactMode}
+              explainStatus={explainStatus}
+              explainText={explainText}
+              explainCached={explainCached}
+              explainError={explainError}
+              explainUnavailable={explainUnavailable}
+              onExplainImpact={onExplainImpact}
+            />
           ) : null}
         </div>
       </motion.aside>
@@ -161,15 +205,137 @@ export const GraphSidePanel = ({
 const PanelContent = ({
   data,
   onSelectFile,
+  impactStatus,
+  impact,
+  impactError,
+  impactMode,
+  onToggleImpactMode,
+  explainStatus,
+  explainText,
+  explainCached,
+  explainError,
+  explainUnavailable,
+  onExplainImpact,
 }: {
   data: FileInspectorResponse;
   onSelectFile: (p: string) => void;
+  impactStatus: ImpactStatus;
+  impact: FileImpact | null;
+  impactError: { code: string; message: string } | null;
+  impactMode: boolean;
+  onToggleImpactMode?: () => void;
+  explainStatus: ImpactExplainStatus;
+  explainText: string | null;
+  explainCached: boolean;
+  explainError: ImpactExplainError | null;
+  explainUnavailable: string | null;
+  onExplainImpact?: () => void;
 }) => {
   const groups = groupSymbols(data.symbols);
   const nonEmpty = SYMBOL_KIND_ORDER.filter((k) => groups[k].length > 0);
+  const down = impact?.downstream;
 
   return (
     <div className="flex flex-col gap-5">
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-200/70">
+              Change impact
+            </div>
+            {impactStatus === 'loading' ? (
+              <p className="mt-1.5 flex items-center gap-2 text-sm text-white/50">
+                <Spinner size={12} /> Computing blast radius…
+              </p>
+            ) : impactStatus === 'error' ? (
+              <p className="mt-1.5 text-sm text-red-200/80">{impactError?.message}</p>
+            ) : down ? (
+              <>
+                <p className="mt-1.5 text-sm text-white/85">
+                  Changing this affects{' '}
+                  <span className="font-semibold tabular-nums text-amber-100">
+                    {down.total}
+                  </span>{' '}
+                  file{down.total === 1 ? '' : 's'}
+                </p>
+                <p className="mt-0.5 text-xs text-white/45">
+                  {down.directCount} direct · {down.transitiveCount} transitive
+                  {down.maxDistance > 0 ? ` · deepest ${down.maxDistance} hops` : ''}
+                </p>
+              </>
+            ) : (
+              <p className="mt-1.5 text-sm text-white/50">No downstream dependents.</p>
+            )}
+          </div>
+          {onToggleImpactMode ? (
+            <Button
+              size="md"
+              variant="ghost"
+              className="!px-2.5 !py-1 text-xs"
+              aria-pressed={impactMode}
+              onClick={onToggleImpactMode}
+            >
+              {impactMode ? 'Impact on' : 'Impact'}
+            </Button>
+          ) : null}
+        </div>
+
+        {down && down.files.length > 0 ? (
+          <ul className="mt-3 max-h-36 space-y-1 overflow-y-auto">
+            {down.files.slice(0, 40).map((f) => (
+              <li key={f.filePath} className="flex items-baseline justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => onSelectFile(f.filePath)}
+                  className="truncate text-left font-mono text-[12px] text-amber-100/80 hover:text-amber-50 hover:underline"
+                >
+                  {f.filePath}
+                </button>
+                <span className="shrink-0 text-[10px] tabular-nums text-white/35">
+                  {f.relation === 'direct' ? 'direct' : `d${f.distance}`}
+                </span>
+              </li>
+            ))}
+            {down.files.length > 40 ? (
+              <li className="text-[11px] text-white/35">+{down.files.length - 40} more</li>
+            ) : null}
+          </ul>
+        ) : null}
+
+        {onExplainImpact ? (
+          <div className="mt-3 border-t border-white/[0.06] pt-3">
+            <Button
+              size="md"
+              variant="ghost"
+              className="!px-2.5 !py-1 text-xs"
+              isLoading={explainStatus === 'loading'}
+              onClick={onExplainImpact}
+              disabled={explainStatus === 'loading'}
+            >
+              {explainStatus === 'success' ? 'Explain again' : 'Explain impact'}
+            </Button>
+            {explainStatus === 'unavailable' ? (
+              <p className="mt-2 text-xs text-amber-100/60">
+                {explainUnavailable ?? 'AI is not configured on this server.'}
+              </p>
+            ) : null}
+            {explainStatus === 'error' ? (
+              <p className="mt-2 text-xs text-red-200/80">{explainError?.message}</p>
+            ) : null}
+            {explainStatus === 'success' && explainText ? (
+              <div className="mt-2">
+                <p className="whitespace-pre-wrap text-xs leading-relaxed text-white/70">
+                  {explainText}
+                </p>
+                <p className="mt-1 text-[10px] text-white/35">
+                  {explainCached ? 'Cached' : 'Fresh'} · AI over structured impact facts
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
       <div className="flex flex-wrap items-center gap-1.5">
         <Badge tone="accent">{data.language}</Badge>
         {data.parseError ? <Badge tone="warning">syntax errors</Badge> : null}

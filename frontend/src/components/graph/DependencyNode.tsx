@@ -17,7 +17,7 @@ import { colorForNode } from '../../lib/graphColors';
 
 export interface DependencyNodeData {
   node: DepNode;
-  highlight: 'selected' | 'connected' | 'dimmed' | 'match' | null;
+  highlight: 'selected' | 'connected' | 'dimmed' | 'match' | 'impact' | null;
   filename: string;
   [key: string]: unknown;
 }
@@ -34,14 +34,17 @@ const DependencyNodeInner = ({ data, selected }: NodeProps) => {
   const isDimmed = highlight === 'dimmed';
   const isMatch = highlight === 'match';
   const isConnected = highlight === 'connected';
+  const isImpact = highlight === 'impact';
 
   const borderColor = isSelected
     ? '#ffffff'
     : isMatch
       ? '#fbbf24'
-      : isConnected
-        ? tokens.ring
-        : 'rgba(255,255,255,0.10)';
+      : isImpact
+        ? '#f59e0b'
+        : isConnected
+          ? tokens.ring
+          : 'rgba(255,255,255,0.10)';
 
   return (
     <div
@@ -55,13 +58,15 @@ const DependencyNodeInner = ({ data, selected }: NodeProps) => {
         height: NODE_HEIGHT,
         background: tokens.fill,
         borderColor,
-        borderWidth: isSelected || isMatch ? 2 : 1,
+        borderWidth: isSelected || isMatch || isImpact ? 2 : 1,
         boxShadow: isSelected
           ? '0 8px 24px -6px rgba(0,0,0,0.5), 0 0 0 3px rgba(255,255,255,0.06)'
           : isMatch
             ? `0 0 0 3px rgba(251, 191, 36, 0.25)`
-            : '0 4px 12px -6px rgba(0,0,0,0.35)',
-        opacity: isDimmed ? 0.25 : 1,
+            : isImpact
+              ? '0 0 0 3px rgba(245, 158, 11, 0.28)'
+              : '0 4px 12px -6px rgba(0,0,0,0.35)',
+        opacity: isDimmed ? 0.22 : 1,
       }}
     >
       <Handle
